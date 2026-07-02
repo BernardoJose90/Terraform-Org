@@ -1,9 +1,11 @@
 ###############################################################################
-# AWS Organizations – Multi-Account Landing Zone
+# This main.tf file manages AWS Organizations – Multi-Account Landing Zone(OUs, accounts) 
+# Delegates security account as the administrators for securityhub, guardDuty and access_analyzer.
+# 
 # Management account: james.jose109099@gmail.com (145678291484)
-#
+# 
 # FIRST-TIME SETUP — run this once before terraform apply:
-#   terraform import aws_organizations_organization.this r-sywu
+# terraform import aws_organizations_organization.this r-sywu
 ###############################################################################
 
 terraform {
@@ -16,11 +18,11 @@ terraform {
     }
   }
 
-backend "s3" {
+  backend "s3" {
     bucket         = "james-terraform-state-2026"
     key            = "org/terraform.tfstate"
     region         = "eu-west-2"
-    use_lockfile = true
+    use_lockfile   = true
     encrypt        = true
   }
 }
@@ -28,6 +30,22 @@ backend "s3" {
 provider "aws" {
   region = var.home_region
 }
+
+###############################################################################
+# 1. IAM Role for Terraform Deployment
+# Creates the role that Terraform uses to manage AWS Organizations
+# Module sourced from terraform-platform repository
+###############################################################################
+
+module "terraform_deploy_role" {
+  source = "git::https://github.com/BernardoJose90/Terraform-Platform.git//modules/terraform-deploy-role?ref=main"
+  
+  management_account_id = "145678291484"
+}
+
+###############################################################################
+# 2. AWS Organizations Configuration
+###############################################################################
 
 resource "aws_organizations_organization" "this" {
   feature_set = "ALL"
@@ -193,4 +211,30 @@ resource "aws_organizations_delegated_administrator" "securityhub" {
 resource "aws_organizations_delegated_administrator" "access_analyzer" {
   account_id        = aws_organizations_account.security.id
   service_principal = "access-analyzer.amazonaws.com"
+}
+
+###############################################################################
+# 3. Store account IDs in SSM Parameter Store
+# These will be read by terraform-platform to configure SSO permissions
+###############################################################################
+
+resource "aws_ssm_parameter" "account_ids" {
+  for_each = {
+    security           = aws_organizations_account.security.id
+    security_analytics = aws_organizations_account.security_analytics.id
+    network            = aws_organizations_account.network.id
+    monitoring         = aws_organizations_account.monitoring.id
+    production         = aws_organizations_account.production.id
+    development        = aws_organizations_account.development.id
+  }
+
+  name      = "/organizations/accounts/${each.key}"
+  value     = each.value
+  type      = "String"
+  overwrite = true
+
+  tags = {
+    ManagedBy = "Terraform"
+    Purpose   = "Share account IDs with other Terraform configurations"
+  }
 }
