@@ -319,9 +319,9 @@ resource "aws_organizations_policy" "region_restriction" {
   }
 }
 
-resource "aws_organizations_policy_attachment" "region_restriction_root" {
+resource "aws_organizations_policy_attachment" "region_restriction_dev_test" {
   policy_id = aws_organizations_policy.region_restriction.id
-  target_id = local.root_id
+  target_id = aws_organizations_organizational_unit.workloads_dev.id
 }
 
 ###############################################################################
