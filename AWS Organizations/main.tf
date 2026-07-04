@@ -57,7 +57,7 @@ provider "aws" {
 module "terraform_deploy_role" {
   source = "git::https://github.com/BernardoJose90/Terraform-Platform.git//modules/terraform-deploy-role?ref=main"
 
-  management_account_id = "145678291484"
+  management_account_id = var.management_account_id
 }
 
 ###############################################################################
@@ -245,6 +245,83 @@ resource "aws_organizations_delegated_administrator" "securityhub" {
 resource "aws_organizations_delegated_administrator" "access_analyzer" {
   account_id        = aws_organizations_account.security.id
   service_principal = "access-analyzer.amazonaws.com"
+}
+
+###############################################################################
+# 4. Region Restriction SCP
+# Denies API calls outside var.allowed_regions, except for actions on global
+# services that either have no regional endpoint or must remain reachable
+# from any region (IAM, STS, Organizations, CloudFront, Route 53, Support,
+# Billing, Identity Center / SSO, etc.)
+###############################################################################
+
+data "aws_iam_policy_document" "region_restriction" {
+  statement {
+    sid       = "DenyOutsideAllowedRegions"
+    effect    = "Deny"
+    actions   = ["*"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "aws:RequestedRegion"
+      values   = var.allowed_regions
+    }
+
+    condition {
+      test     = "ForAllValues:StringNotEquals"
+      variable = "aws:CalledVia"
+      values   = ["servicecatalog.amazonaws.com"]
+    }
+
+    # Exclude actions that either run globally or must remain reachable
+    # regardless of region (IAM, STS, Organizations, Billing, Support,
+    # CloudFront, Route 53, SSO/Identity Center, Trusted Advisor, WAF global).
+    not_actions = [
+      "iam:*",
+      "sts:*",
+      "organizations:*",
+      "account:*",
+      "aws-portal:*",
+      "budgets:*",
+      "ce:*",
+      "cur:*",
+      "support:*",
+      "trustedadvisor:*",
+      "cloudfront:*",
+      "route53:*",
+      "route53domains:*",
+      "waf:*",
+      "wafv2:*",
+      "shield:*",
+      "globalaccelerator:*",
+      "sso:*",
+      "sso-directory:*",
+      "identitystore:*",
+      "guardduty:*",
+      "securityhub:*",
+      "access-analyzer:*",
+      "tag:*",
+      "resource-explorer-2:*",
+      "health:*",
+    ]
+  }
+}
+
+resource "aws_organizations_policy" "region_restriction" {
+  name        = "region-restriction"
+  description = "Denies actions outside the allowed regions: ${join(", ", var.allowed_regions)}"
+  type        = "SERVICE_CONTROL_POLICY"
+  content     = data.aws_iam_policy_document.region_restriction.json
+
+  tags = {
+    ManagedBy = "Terraform"
+  }
+}
+
+resource "aws_organizations_policy_attachment" "region_restriction_root" {
+  policy_id = aws_organizations_policy.region_restriction.id
+  target_id = local.root_id
 }
 
 ###############################################################################

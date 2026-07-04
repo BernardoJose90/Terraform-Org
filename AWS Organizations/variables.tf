@@ -1,7 +1,6 @@
 variable "home_region" {
   description = "Primary AWS region."
   type        = string
-  default     = "eu-west-2"
 }
 
 variable "management_account_id" {
