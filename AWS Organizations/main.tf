@@ -259,7 +259,6 @@ data "aws_iam_policy_document" "region_restriction" {
   statement {
     sid       = "DenyOutsideAllowedRegions"
     effect    = "Deny"
-    actions   = ["*"]
     resources = ["*"]
 
     condition {
@@ -268,15 +267,6 @@ data "aws_iam_policy_document" "region_restriction" {
       values   = var.allowed_regions
     }
 
-    condition {
-      test     = "ForAllValues:StringNotEquals"
-      variable = "aws:CalledVia"
-      values   = ["servicecatalog.amazonaws.com"]
-    }
-
-    # Exclude actions that either run globally or must remain reachable
-    # regardless of region (IAM, STS, Organizations, Billing, Support,
-    # CloudFront, Route 53, SSO/Identity Center, Trusted Advisor, WAF global).
     not_actions = [
       "iam:*",
       "sts:*",
