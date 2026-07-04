@@ -1,4 +1,20 @@
-###############################################################################
+#####################################################################################################
+# This is the AWS Organizations setup that creates our member accounts and writes their IDs 
+# to SSM Parameter Store. This is the first step in our multi-account setup.
+#####################################################################################################
+
+#####################################################################################################
+# Summary Flow
+# 1-Enable AWS Organizations
+# 2-Create OU hierarchy (Security → Infrastructure → Workloads/Prod & Dev)
+# 3-Create 6 member accounts in appropriate OUs
+# 4-Delegate Security account to manage GuardDuty, SecurityHub, and Access Analyzer
+# 5-Store all account IDs in SSM Parameter Store for other configurations to consume
+# This setup creates a landing zone for a well-architected multi-account AWS environment following 
+# best practices for separation of duties and centralized security management.
+#####################################################################################################
+
+#####################################################################################################
 # This main.tf file manages AWS Organizations – Multi-Account Landing Zone(OUs, accounts) 
 # Delegates security account as the administrators for securityhub, guardDuty and access_analyzer.
 # 
@@ -6,10 +22,10 @@
 # 
 # FIRST-TIME SETUP — run this once before terraform apply:
 # terraform import aws_organizations_organization.this r-sywu
-###############################################################################
+#####################################################################################################
 
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
@@ -32,19 +48,21 @@ provider "aws" {
 }
 
 ###############################################################################
-# 1. IAM Role for Terraform Deployment
+# 1. Creates an IAM role for Terraform to deploy resources
+# Source: Pulls module from a Git repository (Terraform-Platform)
 # Creates the role that Terraform uses to manage AWS Organizations
 # Module sourced from terraform-platform repository
 ###############################################################################
 
 module "terraform_deploy_role" {
   source = "git::https://github.com/BernardoJose90/Terraform-Platform.git//modules/terraform-deploy-role?ref=main"
-  
+
   management_account_id = "145678291484"
 }
 
 ###############################################################################
 # 2. AWS Organizations Configuration
+# Enables AWS Organizations in the management account
 ###############################################################################
 
 resource "aws_organizations_organization" "this" {
@@ -66,40 +84,47 @@ resource "aws_organizations_organization" "this" {
   ]
 }
 
+# Purpose: Extracts the organization root ID for use in OU creation
 locals {
   root_id = aws_organizations_organization.this.roots[0].id
 }
 
+# security OU to hold security-related accounts.
 resource "aws_organizations_organizational_unit" "security" {
   name      = "Security"
   parent_id = local.root_id
   tags      = { ManagedBy = "Terraform" }
 }
 
+# infrastructure OU to hold shared infrastructure accounts (network, monitoring).
 resource "aws_organizations_organizational_unit" "infrastructure" {
   name      = "Infrastructure"
   parent_id = local.root_id
   tags      = { ManagedBy = "Terraform" }
 }
 
+# Parent OU for all workload accounts.
 resource "aws_organizations_organizational_unit" "workloads" {
   name      = "Workloads"
   parent_id = local.root_id
   tags      = { ManagedBy = "Terraform" }
 }
 
+# Child of Workloads OU for production workloads
 resource "aws_organizations_organizational_unit" "workloads_prod" {
   name      = "Prod"
   parent_id = aws_organizations_organizational_unit.workloads.id
   tags      = { ManagedBy = "Terraform" }
 }
 
+# Child of Workloads OU for development workloads
 resource "aws_organizations_organizational_unit" "workloads_dev" {
   name      = "Dev"
   parent_id = aws_organizations_organizational_unit.workloads.id
   tags      = { ManagedBy = "Terraform" }
 }
 
+# Creates security OU.
 resource "aws_organizations_account" "security" {
   name      = "security"
   email     = var.account_emails["security"]
@@ -198,6 +223,15 @@ resource "aws_organizations_account" "development" {
   }
 }
 
+# Purpose: Designates the Security account as the delegated administrator for:
+# GuardDuty: Threat detection service
+# SecurityHub: Security posture management
+# Access Analyzer: IAM policy analysis
+# This means the Security account can:
+# Manage GuardDuty across all organization accounts
+# Aggregate SecurityHub findings from all accounts
+# Run Access Analyzer across the organization
+
 resource "aws_organizations_delegated_administrator" "guardduty" {
   account_id        = aws_organizations_account.security.id
   service_principal = "guardduty.amazonaws.com"
@@ -214,8 +248,8 @@ resource "aws_organizations_delegated_administrator" "access_analyzer" {
 }
 
 ###############################################################################
-# 3. Store account IDs in SSM Parameter Store
-# These will be read by terraform-platform to configure SSO permissions
+# 3. Store all account IDs in SSM Parameter Store 
+# These will be read by terraform-platform repo in github to configure SSO permissions
 ###############################################################################
 
 resource "aws_ssm_parameter" "account_ids" {
