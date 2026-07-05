@@ -1,6 +1,6 @@
 # 🏢 AWS Organizations — Landing Zone Bootstrap
 
-> Terraform configuration that stands up the AWS Organization, OU hierarchy, and six member accounts for the multi-account landing zone. This is the **first** stack deployed while everything else (SSO, VPCs, per-account resources) from the multi-account AWS infrastructure repo depends on its outputs(**Accounts ID**).
+> Terraform configuration that stands up the AWS Organization, OU hierarchy, and six member accounts for the multi-account landing zone. This is the **first** stack deployed while everything else (SSO, VPCs, per-account resources) from the multi-account AWS infrastructure repo (**Terraform-platform**) depends on its outputs(**Accounts ID**).
 
 ---
 
