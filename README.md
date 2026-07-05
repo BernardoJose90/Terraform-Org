@@ -1,6 +1,6 @@
 # 🏢 AWS Organizations — Landing Zone Bootstrap
 
-> Terraform configuration that stands up the AWS Organization, OU hierarchy, and six member accounts for the multi-account landing zone. This is the **first** Terraform configuration deployed while everything else (SSO, VPCs, per-account resources) from the multi-account AWS infrastructure Terraform configuration repo (**Terraform-platform**) depends on its outputs(**Accounts ID**).
+> Terraform configuration that stands up the AWS Organization, OU hierarchy, and six member accounts for the multi-account landing zone. This is the **first** Terraform configuration deployed while everything else (SSO, VPCs, per-account resources) from the multi-account AWS infrastructure Terraform configuration  (**Terraform-platform**) repo depends on its outputs(**Accounts ID**).
 
 ---
 
@@ -23,13 +23,13 @@
 
 ## 🎯 Overview
 
-This stack manages **AWS Organizations** for the management account (`145678291484`, `james.jose109099@gmail.com`). It:
+This Terraform configuration manages **AWS Organizations** for the management account. It:
 
 1. Enables AWS Organizations with all features and Service Control Policies + Tag Policies
 2. Builds the OU hierarchy: `Security` → `Infrastructure` → `Workloads` (`Prod` / `Dev`)
 3. Creates 6 member accounts, one per OU
 4. Delegates the **Security** account as the org-wide administrator for GuardDuty, Security Hub, and Access Analyzer
-5. Publishes every account ID to **SSM Parameter Store** so downstream Terraform stacks (SSO, per-account VPCs, etc.) can read them without hardcoding
+5. Publishes every account ID to **SSM Parameter Store** so downstream Multi-Account AWS Infrastructure repo (**Terraform-platform**) (SSO, per-account VPCs, etc.) can read them without hardcoding.
 
 ---
 
@@ -65,7 +65,7 @@ Root
         └── development        (dev/test)
 ```
 
-Each account is created with `role_name = "OrganizationAccountAccessRole"` and `prevent_destroy = true` in its lifecycle block, so `terraform destroy` will refuse to delete accounts by default — you'd need to remove the lifecycle rule intentionally first.
+Each account is created with `role_name = "OrganizationAccountAccessRole"` and `prevent_destroy = true` in its lifecycle block, so `terraform destroy` will not delete accounts by default — you'd need to remove the lifecycle rule intentionally first.
 
 ---
 
@@ -73,7 +73,7 @@ Each account is created with `role_name = "OrganizationAccountAccessRole"` and `
 
 A Service Control Policy (`aws_organizations_policy.region_restriction`, id `p-r2cbxwc8`) denies all actions outside `var.allowed_regions` (default: `eu-west-1`, `eu-west-2`), with an exclusion list (`not_actions`) for global services that don't run in a specific region — IAM, STS, Organizations, Billing, Support, CloudFront, Route 53, SSO/Identity Center, GuardDuty, Security Hub, Access Analyzer, and a few others.
 
-**⚠️ Current rollout status: deployed to Dev, pending validation before promoting to root.** The policy is attached only to the **Dev OU** (`aws_organizations_organizational_unit.workloads_dev`, `ou-sywu-g0b58c92`), not the organization root. This is intentional — SCPs applied at root affect every account including the management account, and a missing entry in `not_actions` can lock out access org-wide. Rollout plan:
+**⚠️ Current rollout status: deployed to Dev, pending validation before promoting to root.** The policy is attached only to the **Dev OU** (`aws_organizations_organizational_unit.workloads_dev`), not the organization root. This is intentional since SCPs applied at root affect every account including the management account.
 
 1. ✅ Deploy the SCP, attached to Dev only — applied successfully
 2. ⏳ Verify normal operations still work in the `development` account (SSO login, CLI workflows, anything else that account uses day-to-day)
@@ -83,9 +83,7 @@ A Service Control Policy (`aws_organizations_policy.region_restriction`, id `p-r
    ```
 4. ⏳ Once confident nothing is broken, change the attachment's `target_id` from the Dev OU to `local.root_id` to enforce it org-wide
 
-If something you rely on gets unexpectedly denied during testing, add the relevant service to the `not_actions` list in `main.tf` and re-apply — don't promote to root until Dev has run cleanly for a while.
-
-> **Note on statement syntax:** a single SCP statement cannot mix `actions` and `not_actions` — they're mutually exclusive (`not_actions` already implies "every action except these"). The first version of this policy set both, which AWS rejected with `MalformedPolicyDocumentException`. The fix was removing the `actions = ["*"]` line and a stray, unnecessary `aws:CalledVia` condition, leaving only `not_actions` + the `aws:RequestedRegion` condition.
+If something we rely on gets unexpectedly denied during testing, add the relevant service to the `not_actions` list in `main.tf` and re-apply we don't promote to root until Dev has run cleanly for a while.
 
 ---
 
@@ -93,7 +91,7 @@ If something you rely on gets unexpectedly denied during testing, add the releva
 
 - Terraform >= 1.10.0
 - AWS CLI >= 2.0, authenticated against the **management account**
-- An existing AWS Organization (this config imports it — see below — rather than creating one from scratch)
+- An existing AWS Organization (this config imports it see below rather than creating one from scratch)
 - S3 bucket `james-terraform-state-2026` in `eu-west-2` for remote state
 - Unique root email addresses for each of the 6 member accounts (AWS requires a distinct email per account — this repo uses Gmail `+` aliases off one inbox)
 
@@ -109,7 +107,7 @@ terraform init
 terraform import aws_organizations_organization.this r-sywu
 ```
 
-Only needs to be run once. After the import, `terraform plan` / `terraform apply` behave normally.
+Only needs to be run once. After the import we issue `terraform plan` / `terraform apply` as normal.
 
 ---
 
@@ -124,7 +122,7 @@ terraform plan
 terraform apply
 ```
 
-Outputs (account IDs, role ARNs) are also written to SSM automatically — no manual copy/paste needed for downstream stacks.
+Outputs (account IDs, role ARNs) are also written to SSM automatically  no manual copy/paste needed for the multi-account AWS infrastructure Terraform configuration ***Terraform-platform*** repo.
 
 ---
 
@@ -176,10 +174,4 @@ Account IDs are also mirrored to SSM at `/organizations/accounts/<name>` for con
 ---
 
 ## 🐛 Known Issues / TODOs
-
-- ✅ ~~`management_account_id` hardcoded as a literal~~ — **Fixed.** The `terraform_deploy_role` module now consumes `var.management_account_id` instead of a hardcoded string.
-- ✅ ~~`allowed_regions` unused~~ — **Fixed.** A region-restriction SCP (`aws_organizations_policy.region_restriction`) now enforces it, deployed and applied successfully to the Dev OU. See [Region Restriction SCP](#region-restriction-scp) for the promotion-to-root plan.
-- **Region-restriction SCP not yet at root.** It's intentionally scoped to Dev while being validated — promote to `local.root_id` once confirmed safe.
-- **Only one SCP exists so far.** Baseline guardrails commonly paired with region restriction — e.g. preventing accounts from leaving the org, restricting root user actions, denying disabling of GuardDuty/Security Hub/CloudTrail — are natural next additions once the region SCP is fully rolled out.
-- **Tag Policies are enabled** on the organization (`enabled_policy_types = ["SERVICE_CONTROL_POLICY", "TAG_POLICY"]`) but no actual `aws_organizations_policy` of type `TAG_POLICY` is defined yet — enabling the policy type doesn't create a policy by itself.
 - **`terraform.tfvars` still contains real email addresses and the management account ID in plaintext.** Fine for a personal/learning setup, but gitignore it (or move to a secrets manager / CI variables) before making the repo public.
