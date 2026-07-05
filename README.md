@@ -127,7 +127,7 @@ Outputs (account IDs, role ARNs) are also written to SSM automatically  no manua
 | `home_region` | Primary AWS region | `string` | — (required; no default) |
 | `management_account_id` | AWS Account ID of the existing management account | `string` | — (required) |
 | `account_emails` | Unique root email per member account (`security`, `security_analytics`, `network`, `monitoring`, `production`, `development`) | `object` | — (required) |
-| `allowed_regions` | Regions permitted by the region-restriction SCP. Enforced via `aws_organizations_policy.region_restriction` — [Region Restriction SCP]for current rollout scope | `list(string)` | `["eu-west-1", "eu-west-2"]` |
+| `allowed_regions` | Regions permitted by the region-restriction SCP. Enforced via `aws_organizations_policy.region_restriction` — see [Region Restriction SCP](#region-restriction-scp) for current rollout scope | `list(string)` | `["eu-west-1", "eu-west-2"]` |
 
 ---
 
