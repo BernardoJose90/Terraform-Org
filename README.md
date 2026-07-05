@@ -75,13 +75,7 @@ A Service Control Policy (`aws_organizations_policy.region_restriction`, id `p-r
 
 **⚠️ Current rollout status: deployed to Dev, pending validation before promoting to root.** The policy is attached only to the **Dev OU** (`aws_organizations_organizational_unit.workloads_dev`), not the organization root. This is intentional since SCPs applied at root affect every account including the management account.
 
-1. ✅ Deploy the SCP, attached to Dev only — applied successfully
-2. ⏳ Verify normal operations still work in the `development` account (SSO login, CLI workflows, anything else that account uses day-to-day)
-3. ⏳ Confirm the deny actually triggers for a disallowed region, e.g.:
-   ```bash
-   aws ec2 describe-instances --region us-east-1 --profile development
-   ```
-4. ⏳ Once confident nothing is broken, change the attachment's `target_id` from the Dev OU to `local.root_id` to enforce it org-wide
+Once confident nothing is broken, change the attachment's `target_id` from the Dev OU to `local.root_id` to enforce it org-wide
 
 If something we rely on gets unexpectedly denied during testing, add the relevant service to the `not_actions` list in `main.tf` and re-apply we don't promote to root until Dev has run cleanly for a while.
 
