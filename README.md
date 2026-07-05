@@ -25,11 +25,11 @@
 
 This Terraform configuration manages **AWS Organizations** for the management account. It:
 
-1. Enables AWS Organizations with all features and Service Control Policies + Tag Policies
+1. Enables AWS Organizations features and Service Control Policies + Tag Policies
 2. Builds the OU hierarchy: `Security` → `Infrastructure` → `Workloads` (`Prod` / `Dev`)
 3. Creates 6 member accounts, one per OU
 4. Delegates the **Security** account as the org-wide administrator for GuardDuty, Security Hub, and Access Analyzer
-5. Publishes every account ID to **SSM Parameter Store** so downstream Multi-Account AWS Infrastructure repo (**Terraform-platform**) (SSO, per-account VPCs, etc.) can read them without hardcoding.
+5. Publishes every account ID to **SSM Parameter Store** so downstream repo (**Terraform-platform**) which manages(SSO, per-account VPCs, etc.) can read every account ID dynamically without hardcoding.
 
 ---
 
