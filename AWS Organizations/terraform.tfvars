@@ -1,5 +1,9 @@
 home_region           = "eu-west-2"
 
+account_name          = "management"
+github_org            = "BernardoJose90"
+github_repo           = "Terraform-platform"
+management_account_id = "145678291484"
 
 account_emails = {
   security           = "james.jose109099+aws-securitys@gmail.com"
