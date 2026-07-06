@@ -1,5 +1,5 @@
 home_region           = "eu-west-2"
-management_account_id = "145678291484"
+
 
 account_emails = {
   security           = "james.jose109099+aws-securitys@gmail.com"

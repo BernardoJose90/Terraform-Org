@@ -25,3 +25,8 @@ variable "allowed_regions" {
   type        = list(string)
   default     = ["eu-west-1", "eu-west-2"]
 }
+
+variable "account_name" {
+  description = "Name of the management account."
+  type        = string
+}
