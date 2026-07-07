@@ -47,8 +47,8 @@ resource "aws_iam_role_policy" "github_discovery_ssm_read" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Action = ["ssm:GetParametersByPath", "ssm:GetParameter"]
+      Effect   = "Allow"
+      Action   = ["ssm:GetParametersByPath", "ssm:GetParameter"]
       Resource = "arn:aws:ssm:*:${var.management_account_id}:parameter/organizations/*"
     }]
   })
@@ -60,13 +60,13 @@ resource "aws_iam_role_policy" "github_discovery_ssm_read" {
 
 locals {
   account_tiers = {
-    management           = "production-approval"
-    security             = "production-approval"
-    security-analytics   = "production-approval"
-    network              = "production-approval"
-    monitoring           = "production-approval"
-    production           = "production-approval"
-    development          = "automated"
+    management         = "production-approval"
+    security           = "production-approval"
+    security-analytics = "production-approval"
+    network            = "production-approval"
+    monitoring         = "production-approval"
+    production         = "production-approval"
+    development        = "automated"
   }
 }
 

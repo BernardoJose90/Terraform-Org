@@ -10,7 +10,7 @@ variable "home_region" {
 variable "management_account_id" {
   description = "AWS Account ID of the existing management account."
   type        = string
-  default = "145678291484"
+
 }
 
 variable "account_emails" {
@@ -34,18 +34,18 @@ variable "allowed_regions" {
 variable "account_name" {
   description = "Name of the management account."
   type        = string
-  default = "management"
+
 
 }
 
 variable "github_org" {
   description = "GitHub organization name for GitHub Actions."
-  type        = string  
-  
+  type        = string
+
 }
 
 variable "github_repo" {
   description = "GitHub repository name for GitHub Actions."
   type        = string
-  
+
 }

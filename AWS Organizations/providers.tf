@@ -13,11 +13,11 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "james-terraform-state-2026"
-    key            = "org/terraform.tfstate"
-    region         = "eu-west-2"
-    use_lockfile   = true
-    encrypt        = true
+    bucket       = "james-terraform-state-2026"
+    key          = "org/terraform.tfstate"
+    region       = "eu-west-2"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 

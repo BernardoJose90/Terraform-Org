@@ -9,7 +9,7 @@ data "aws_ssoadmin_instances" "this" {}
 locals {
   sso_instance_arn  = tolist(data.aws_ssoadmin_instances.this.arns)[0]
   identity_store_id = tolist(data.aws_ssoadmin_instances.this.identity_store_ids)[0]
-  
+
   sso_account_names = [
     "security",
     "security_analytics",
@@ -38,7 +38,7 @@ resource "aws_ssoadmin_permission_set" "administrator" {
   instance_arn     = local.sso_instance_arn
   session_duration = "PT2H"
   description      = "Full administrator access. For platform engineers only."
-  tags = { ManagedBy = "Terraform" }
+  tags             = { ManagedBy = "Terraform" }
 }
 
 resource "aws_ssoadmin_managed_policy_attachment" "administrator" {
@@ -52,7 +52,7 @@ resource "aws_ssoadmin_permission_set" "network_administrator" {
   instance_arn     = local.sso_instance_arn
   session_duration = "PT2H"
   description      = "Network administration access. For network team."
-  tags = { ManagedBy = "Terraform" }
+  tags             = { ManagedBy = "Terraform" }
 }
 
 resource "aws_ssoadmin_managed_policy_attachment" "network_administrator" {
@@ -66,7 +66,7 @@ resource "aws_ssoadmin_permission_set" "read_only" {
   instance_arn     = local.sso_instance_arn
   session_duration = "PT1H"
   description      = "Read-only access. For developers viewing production."
-  tags = { ManagedBy = "Terraform" }
+  tags             = { ManagedBy = "Terraform" }
 }
 
 resource "aws_ssoadmin_managed_policy_attachment" "read_only" {
