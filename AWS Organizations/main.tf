@@ -10,6 +10,7 @@
 # 3-Create 6 member accounts in appropriate OUs
 # 4-Delegate Security account to manage GuardDuty, SecurityHub, and Access Analyzer
 # 5-Store all account IDs in SSM Parameter Store for other configurations to consume
+# 6-SSO Resources: Users, Groups, Permission Sets, and Account Assignments
 # This setup creates a landing zone for a well-architected multi-account AWS environment following 
 # best practices for separation of duties and centralized security management.
 #####################################################################################################
@@ -56,7 +57,7 @@ provider "aws" {
 
 module "terraform_deploy_role" {
   source = "git::https://github.com/BernardoJose90/Terraform-Platform.git//modules/terraform-deploy-role?ref=main"
-
+  
   management_account_id = var.management_account_id
   account_name = var.account_name
 }
@@ -249,6 +250,32 @@ resource "aws_organizations_delegated_administrator" "access_analyzer" {
 }
 
 ###############################################################################
+# 3. Store all account IDs in SSM Parameter Store 
+# These will be read by terraform-platform repo in github to configure SSO permissions
+###############################################################################
+
+resource "aws_ssm_parameter" "account_ids" {
+  for_each = {
+    security           = aws_organizations_account.security.id
+    security_analytics = aws_organizations_account.security_analytics.id
+    network            = aws_organizations_account.network.id
+    monitoring         = aws_organizations_account.monitoring.id
+    production         = aws_organizations_account.production.id
+    development        = aws_organizations_account.development.id
+  }
+
+  name      = "/organizations/accounts/${each.key}"
+  value     = each.value
+  type      = "String"
+  overwrite = true
+
+  tags = {
+    ManagedBy = "Terraform"
+    Purpose   = "Share account IDs with other Terraform configurations"
+  }
+}
+
+###############################################################################
 # 4. Region Restriction SCP
 # Denies API calls outside var.allowed_regions, except for actions on global
 # services that either have no regional endpoint or must remain reachable
@@ -316,27 +343,183 @@ resource "aws_organizations_policy_attachment" "region_restriction_dev_test" {
 }
 
 ###############################################################################
-# 3. Store all account IDs in SSM Parameter Store 
-# These will be read by terraform-platform repo in github to configure SSO permissions
+# 5. SSO Resources — IAM Identity Center
+# Users, Groups, Permission Sets, and Account Assignments
+# These are managed as code and read account IDs from SSM Parameter Store
 ###############################################################################
 
-resource "aws_ssm_parameter" "account_ids" {
+# Data source for IAM Identity Center instance
+data "aws_ssoadmin_instances" "this" {}
+
+locals {
+  sso_instance_arn  = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+  identity_store_id = tolist(data.aws_ssoadmin_instances.this.identity_store_ids)[0]
+  
+  # Account names for SSO assignments
+  sso_account_names = [
+    "security",
+    "security_analytics",
+    "network",
+    "monitoring",
+    "production",
+    "development"
+  ]
+}
+
+# Data sources for account IDs (read from SSM)
+data "aws_ssm_parameter" "account_ids_sso" {
+  for_each = toset(local.sso_account_names)
+  name     = "/organizations/accounts/${each.value}"
+}
+
+locals {
+  account_ids_sso = {
+    for name in local.sso_account_names :
+    name => data.aws_ssm_parameter.account_ids_sso[name].value
+  }
+}
+
+# Permission Sets
+resource "aws_ssoadmin_permission_set" "administrator" {
+  name             = "AdministratorAccess"
+  instance_arn     = local.sso_instance_arn
+  session_duration = "PT2H"
+  description      = "Full administrator access. For platform engineers only."
+  tags = { ManagedBy = "Terraform" }
+}
+
+resource "aws_ssoadmin_managed_policy_attachment" "administrator" {
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.administrator.arn
+  managed_policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+resource "aws_ssoadmin_permission_set" "network_administrator" {
+  name             = "NetworkAdministrator"
+  instance_arn     = local.sso_instance_arn
+  session_duration = "PT2H"
+  description      = "Network administration access. For network team."
+  tags = { ManagedBy = "Terraform" }
+}
+
+resource "aws_ssoadmin_managed_policy_attachment" "network_administrator" {
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.network_administrator.arn
+  managed_policy_arn = "arn:aws:iam::aws:policy/job-function/NetworkAdministrator"
+}
+
+resource "aws_ssoadmin_permission_set" "read_only" {
+  name             = "ReadOnly"
+  instance_arn     = local.sso_instance_arn
+  session_duration = "PT1H"
+  description      = "Read-only access. For developers viewing production."
+  tags = { ManagedBy = "Terraform" }
+}
+
+resource "aws_ssoadmin_managed_policy_attachment" "read_only" {
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.read_only.arn
+  managed_policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+# Groups
+resource "aws_identitystore_group" "administrators" {
+  display_name      = "administrators"
+  description       = "Platform engineers with full access to all accounts."
+  identity_store_id = local.identity_store_id
+}
+
+resource "aws_identitystore_group" "security_team" {
+  display_name      = "Security Team"
+  description       = "Security engineers with access to security accounts."
+  identity_store_id = local.identity_store_id
+}
+
+resource "aws_identitystore_group" "network_team" {
+  display_name      = "Network Team"
+  description       = "Network engineers with access to network account."
+  identity_store_id = local.identity_store_id
+}
+
+# Users
+resource "aws_identitystore_user" "james_admin" {
+  identity_store_id = local.identity_store_id
+  display_name      = "james jose"
+  user_name         = "james.admin"
+  name {
+    given_name  = "james"
+    family_name = "jose"
+  }
+  emails {
+    value   = "james.jose109099+aws-mgemt@gmail.com"
+    type    = "work"
+    primary = true
+  }
+}
+
+# Group Memberships
+resource "aws_identitystore_group_membership" "james_administrators" {
+  identity_store_id = local.identity_store_id
+  group_id          = aws_identitystore_group.administrators.group_id
+  member_id         = aws_identitystore_user.james_admin.user_id
+}
+
+resource "aws_identitystore_group_membership" "james_security_team" {
+  identity_store_id = local.identity_store_id
+  group_id          = aws_identitystore_group.security_team.group_id
+  member_id         = aws_identitystore_user.james_admin.user_id
+}
+
+resource "aws_identitystore_group_membership" "james_network_team" {
+  identity_store_id = local.identity_store_id
+  group_id          = aws_identitystore_group.network_team.group_id
+  member_id         = aws_identitystore_user.james_admin.user_id
+}
+
+# Account Assignments
+# Administrators → Full Admin → ALL accounts
+resource "aws_ssoadmin_account_assignment" "administrators_admin" {
+  for_each = local.account_ids_sso
+
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.administrator.arn
+  principal_type     = "GROUP"
+  principal_id       = aws_identitystore_group.administrators.group_id
+  target_type        = "AWS_ACCOUNT"
+  target_id          = each.value
+}
+
+# Administrators → Read-Only → Production (Safety net)
+resource "aws_ssoadmin_account_assignment" "administrators_readonly_prod" {
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.read_only.arn
+  principal_type     = "GROUP"
+  principal_id       = aws_identitystore_group.administrators.group_id
+  target_type        = "AWS_ACCOUNT"
+  target_id          = local.account_ids_sso["production"]
+}
+
+# Security Team → AdministratorAccess → Security + Security Analytics
+resource "aws_ssoadmin_account_assignment" "security_team_admin" {
   for_each = {
-    security           = aws_organizations_account.security.id
-    security_analytics = aws_organizations_account.security_analytics.id
-    network            = aws_organizations_account.network.id
-    monitoring         = aws_organizations_account.monitoring.id
-    production         = aws_organizations_account.production.id
-    development        = aws_organizations_account.development.id
+    security           = local.account_ids_sso["security"]
+    security_analytics = local.account_ids_sso["security_analytics"]
   }
 
-  name      = "/organizations/accounts/${each.key}"
-  value     = each.value
-  type      = "String"
-  overwrite = true
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.administrator.arn
+  principal_type     = "GROUP"
+  principal_id       = aws_identitystore_group.security_team.group_id
+  target_type        = "AWS_ACCOUNT"
+  target_id          = each.value
+}
 
-  tags = {
-    ManagedBy = "Terraform"
-    Purpose   = "Share account IDs with other Terraform configurations"
-  }
+# Network Team → NetworkAdministrator → Network account only
+resource "aws_ssoadmin_account_assignment" "network_team_network_admin" {
+  instance_arn       = local.sso_instance_arn
+  permission_set_arn = aws_ssoadmin_permission_set.network_administrator.arn
+  principal_type     = "GROUP"
+  principal_id       = aws_identitystore_group.network_team.group_id
+  target_type        = "AWS_ACCOUNT"
+  target_id          = local.account_ids_sso["network"]
 }

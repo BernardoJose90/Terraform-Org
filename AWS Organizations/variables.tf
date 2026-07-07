@@ -3,6 +3,12 @@ variable "home_region" {
   type        = string
 }
 
+variable "aws_region" {
+  description = "AWS region to deploy the management account resources into."
+  type        = string
+  default     = "eu-west-2"
+}
+
 variable "management_account_id" {
   description = "AWS Account ID of the existing management account."
   type        = string
