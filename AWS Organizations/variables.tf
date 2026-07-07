@@ -1,12 +1,10 @@
+###############################################################################
+# Variables
+###############################################################################
+
 variable "home_region" {
   description = "Primary AWS region."
   type        = string
-}
-
-variable "aws_region" {
-  description = "AWS region to deploy the management account resources into."
-  type        = string
-  default     = "eu-west-2"
 }
 
 variable "management_account_id" {
@@ -35,4 +33,17 @@ variable "allowed_regions" {
 variable "account_name" {
   description = "Name of the management account."
   type        = string
+  default     = "management"
+}
+
+variable "github_org" {
+  description = "GitHub organization name for GitHub Actions."
+  type        = string  
+  
+}
+
+variable "github_repo" {
+  description = "GitHub repository name for GitHub Actions."
+  type        = string
+  
 }

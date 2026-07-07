@@ -1,8 +1,11 @@
-# IAM Policy for terraform-org to write to SSM
+###############################################################################
+# IAM Resources
+# Role and policy for Terraform-Org to write to SSM
+###############################################################################
+
 resource "aws_iam_policy" "terraform_org_ssm" {
   name        = "TerraformOrgSSMPolicy"
   description = "Allow terraform-org to write account IDs to SSM Parameter Store"
-
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -19,8 +22,6 @@ resource "aws_iam_policy" "terraform_org_ssm" {
   })
 }
 
-
-# If we don't have an existing role, create one (optional)
 resource "aws_iam_role" "terraform_org" {
   name = "TerraformOrgRole"
   assume_role_policy = jsonencode({
