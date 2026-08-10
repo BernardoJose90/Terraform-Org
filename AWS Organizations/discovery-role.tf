@@ -26,7 +26,11 @@ data "aws_iam_policy_document" "github_discovery_trust" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_org}/${var.github_repo}:*"]
+      # Deliberately var.discovery_github_repo, NOT var.github_repo — this
+      # role is assumed by Terraform-Platform's CI (account discovery), a
+      # different repo than the one this Terraform config itself runs in.
+      # See variables.tf for why these are two separate variables.
+      values = ["repo:${var.github_org}/${var.discovery_github_repo}:*"]
     }
   }
 }
