@@ -111,6 +111,16 @@ jobs:
     # happening: Apply has never actually run). terraform-validate has no
     # trigger restriction, so it's the one job guaranteed to run alongside
     # this one and still gate on validation passing.
+    #
+    # EXPECTED TO FAIL, on purpose: TerraformDeploy has no organizations:*
+    # permissions and never should — per AWS's own guidance, the management
+    # account's automation is deliberately kept least-privilege rather than
+    # widened to cover AWS Organizations administration (account creation,
+    # OUs, SCPs). Those changes (organizations.tf, scp.tf) are applied
+    # manually via an admin AWS profile. This job still runs so it correctly
+    # applies everything TerraformDeploy *does* have permissions for (IAM,
+    # SSM, the state bucket policy, etc.) — the red X on organizations.tf/
+    # scp.tf changes is accurate, not a bug. See README's Security Notes.
     needs: terraform-validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # environment: "management-account"
