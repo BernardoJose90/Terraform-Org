@@ -8,4 +8,6 @@ module "terraform_deploy_role" {
 
   management_account_id = var.management_account_id
   account_name          = var.account_name
+  github_org            = var.github_org
+  github_repo           = var.github_repo
 }
