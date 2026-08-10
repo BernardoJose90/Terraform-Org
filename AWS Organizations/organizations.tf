@@ -1,6 +1,5 @@
 ###############################################################################
-# AWS Organizations
-# OUs, Accounts, and Delegated Administrators
+# AWS Organizations OUs, Accounts, and Delegated Administrators
 ###############################################################################
 
 resource "aws_organizations_organization" "this" {
@@ -19,6 +18,7 @@ resource "aws_organizations_organization" "this" {
     "securityhub.amazonaws.com",
     "access-analyzer.amazonaws.com",
     "account.amazonaws.com",
+    "ram.amazonaws.com",
   ]
 }
 
