@@ -1,6 +1,5 @@
 ###############################################################################
-# IAM Resources
-# Role and policy for Terraform-Org to write to SSM
+# IAM Resources Role and policy for Terraform-Org to write to SSM
 ###############################################################################
 
 resource "aws_iam_policy" "terraform_org_ssm" {

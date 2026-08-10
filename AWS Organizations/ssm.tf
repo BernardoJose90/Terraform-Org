@@ -1,6 +1,5 @@
 ###############################################################################
-# SSM Parameter Store
-# Store account IDs and tiers for discovery by other repos
+# SSM Parameter Store to Store account IDs and tiers for discovery by Github Action and Terraform-Platform repos
 ###############################################################################
 
 resource "aws_ssm_parameter" "account_ids" {
