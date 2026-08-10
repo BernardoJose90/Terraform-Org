@@ -1,5 +1,5 @@
 ###############################################################################
-# Region Restriction SCP
+# Service control policie(SCP) to set oraganisation wide Governace restrictions
 ###############################################################################
 
 data "aws_iam_policy_document" "region_restriction" {
