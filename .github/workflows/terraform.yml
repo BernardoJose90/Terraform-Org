@@ -105,7 +105,13 @@ jobs:
   terraform-apply:
     name: Apply
     runs-on: ubuntu-latest
-    needs: terraform-plan
+    # terraform-plan only runs on pull_request and this job only runs on
+    # push — those triggers never coincide, so needs: terraform-plan would
+    # skip-cascade this job on every single push (which is exactly what was
+    # happening: Apply has never actually run). terraform-validate has no
+    # trigger restriction, so it's the one job guaranteed to run alongside
+    # this one and still gate on validation passing.
+    needs: terraform-validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # environment: "management-account"
     defaults:
