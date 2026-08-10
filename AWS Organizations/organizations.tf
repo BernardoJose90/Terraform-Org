@@ -171,3 +171,13 @@ resource "aws_organizations_delegated_administrator" "access_analyzer" {
   account_id        = aws_organizations_account.security.id
   service_principal = "access-analyzer.amazonaws.com"
 }
+
+# Delegates IAM Identity Center administration to security, per AWS's own
+# guidance: minimize what has access to the management account by delegating
+# admin of services that support it. See sso.tf's header comment and
+# member-accounts/security/sso.tf (Terraform-Platform repo) for where SSO
+# resource management actually lives now.
+resource "aws_organizations_delegated_administrator" "identity_center" {
+  account_id        = aws_organizations_account.security.id
+  service_principal = "sso.amazonaws.com"
+}
