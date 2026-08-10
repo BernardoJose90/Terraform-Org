@@ -40,7 +40,7 @@ This Terraform configuration manages **AWS Organizations** for the management ac
 | `aws_organizations_organization` | 1 | Feature set `ALL`, SCPs + Tag Policies enabled |
 | `aws_organizations_organizational_unit` | 5 | Security, Infrastructure, Workloads, Workloads/Prod, Workloads/Dev |
 | `aws_organizations_account` | 6 | security, security-analytics, network, monitoring, production, development |
-| `aws_organizations_delegated_administrator` | 3 | Security account delegated for GuardDuty, Security Hub, Access Analyzer |
+| `aws_organizations_delegated_administrator` | 4 | Security account delegated for GuardDuty, Security Hub, Access Analyzer, and IAM Identity Center |
 | `aws_organizations_policy` | 1 | Region-restriction SCP — denies actions outside `var.allowed_regions` |
 | `aws_organizations_policy_attachment` | 1 | Attaches the region-restriction SCP — currently to the **Dev OU only**, see [Region Restriction SCP](#region-restriction-scp) |
 | `aws_ssm_parameter` | 6 | `/organizations/accounts/<name>` → account ID |
