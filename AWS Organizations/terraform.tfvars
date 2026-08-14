@@ -12,7 +12,7 @@ account_emails = {
   network            = "james.jose109099+aws-networks@gmail.com"
   monitoring         = "james.jose109099+aws-monitors@gmail.com"
   production         = "james.jose109099+aws-prods@gmail.com"
-  development        = "james.jose109099+aws-devs@gmail.com"
+  development        = " "
 }
 
 allowed_regions = ["eu-west-1", "eu-west-2"]

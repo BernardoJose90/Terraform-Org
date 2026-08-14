@@ -68,7 +68,7 @@ locals {
     security           = "production-approval"
     security-analytics = "production-approval"
     network            = "production-approval"
-    monitoring         = "production-approval"
+    monitoring         = "automated"
     production         = "production-approval"
     development        = "automated"
   }
