@@ -29,6 +29,7 @@ jobs:
       run:
         working-directory: "AWS Organizations"
     steps:
+      
       - uses: actions/checkout@v4
 
       - name: Setup Terraform
@@ -36,6 +37,14 @@ jobs:
         with:
           terraform_version: 1.10.0
 
+      - name: Verify account_emails is populated
+        run: |
+            if [ -z "$TF_VAR_account_emails" ]; then
+              echo "TF_VAR_account_emails is empty, check the secret exists in the Secrets tab"
+              exit 1
+            fi
+            echo "$TF_VAR_account_emails" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d)} keys: {sorted(d.keys())}')"
+            
       - name: Terraform Init
         run: terraform init -backend=false
 
