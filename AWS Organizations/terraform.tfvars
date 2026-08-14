@@ -1,10 +1,9 @@
-home_region = "eu-west-2"
+home_region           = "eu-west-2"
 
 github_org            = "BernardoJose90"
-github_repo           = "Terraform-Org"
-discovery_github_repo = "Terraform-platform"
+github_repo           = "Terraform-platform"
 account_name          = "management"
-management_account_id = "145678291484"
+management_account_id = "145678291484" 
 
 account_emails = {
   security           = "james.jose109099+aws-securitys@gmail.com"
@@ -12,7 +11,7 @@ account_emails = {
   network            = "james.jose109099+aws-networks@gmail.com"
   monitoring         = "james.jose109099+aws-monitors@gmail.com"
   production         = "james.jose109099+aws-prods@gmail.com"
-  development        = " "
+  development        = "james.jose109099+aws-devs@gmail.com"
 }
 
 allowed_regions = ["eu-west-1", "eu-west-2"]
