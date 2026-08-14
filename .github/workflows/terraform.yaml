@@ -13,6 +13,9 @@ on:
       - "**.tf"
   workflow_dispatch:
 
+env:
+  TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
+
 permissions:
   id-token: write
   contents: read
