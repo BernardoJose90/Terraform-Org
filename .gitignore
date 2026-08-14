@@ -3,5 +3,6 @@
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
+*.auto.tfvars
 crash.log
 crash.*.log
