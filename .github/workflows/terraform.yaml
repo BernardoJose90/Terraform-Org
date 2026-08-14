@@ -40,11 +40,11 @@ jobs:
       - name: Verify account_emails is populated
         run: |
             if [ -z "$TF_VAR_account_emails" ]; then
-              echo "TF_VAR_account_emails is empty, check the secret exists in the Secrets tab"
+              echo "TF_VAR_account_emails is empty, check the secret exists in the Secrets tab or not empty in the workflow file."
               exit 1
             fi
             echo "$TF_VAR_account_emails" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d)} keys: {sorted(d.keys())}')"
-            
+
       - name: Terraform Init
         run: terraform init -backend=false
 
