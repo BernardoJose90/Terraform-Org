@@ -3,7 +3,7 @@
 ###############################################################################
 
 output "organization_id" {
-  value = aws_organizations_organization.this.id
+  value = aws_organizations_organization.aws_Org.id
 }
 
 output "root_id" {

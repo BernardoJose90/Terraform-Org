@@ -2,7 +2,15 @@
 # AWS Organizations OUs, Accounts, and Delegated Administrators
 ###############################################################################
 
-resource "aws_organizations_organization" "this" {
+# This resource is used to move the AWS Organization from the management account to a new account.
+moved {
+  from = aws_organizations_organization.this
+  to   = aws_organizations_organization.aws_Org
+}
+
+# This module creates the AWS Organization, Organizational Units, Member Accounts, and Delegated Administrators for the organization. 
+# It also enables the necessary service principals for AWS services that require access to the organization.
+resource "aws_organizations_organization" "aws_Org" {
   feature_set = "ALL"
 
   enabled_policy_types = [
@@ -20,10 +28,13 @@ resource "aws_organizations_organization" "this" {
     "account.amazonaws.com",
     "ram.amazonaws.com",
   ]
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 locals {
-  root_id = aws_organizations_organization.this.roots[0].id
+  root_id = aws_organizations_organization.aws_Org.roots[0].id
 }
 
 # Organizational Units
@@ -152,7 +163,7 @@ resource "aws_organizations_account" "development" {
   }
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [role_name]
+    ignore_changes  = [role_name, email]
   }
 }
 
