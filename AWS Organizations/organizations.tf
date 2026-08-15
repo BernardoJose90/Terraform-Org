@@ -1,5 +1,5 @@
 ###############################################################################
-# AWS Organizations OUs, Accounts, and Delegated Administrators
+# AWS Organizations OUs, Accounts, and Delegated Administrators.
 ###############################################################################
 
 resource "aws_organizations_organization" "this" {
