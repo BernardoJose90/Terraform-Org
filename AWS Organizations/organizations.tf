@@ -81,7 +81,7 @@ resource "aws_organizations_account" "security" {
   }
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [role_name]
+    ignore_changes  = [role_name, email]
   }
 }
 
@@ -97,7 +97,7 @@ resource "aws_organizations_account" "security_analytics" {
   }
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [role_name]
+    ignore_changes  = [role_name, email]
   }
 }
 
@@ -113,7 +113,7 @@ resource "aws_organizations_account" "network" {
   }
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [role_name]
+    ignore_changes  = [role_name, email]
   }
 }
 
@@ -129,7 +129,7 @@ resource "aws_organizations_account" "monitoring" {
   }
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [role_name]
+    ignore_changes  = [role_name, email]
   }
 }
 
@@ -146,7 +146,7 @@ resource "aws_organizations_account" "production" {
   }
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [role_name]
+    ignore_changes  = [role_name, email]
   }
 }
 
