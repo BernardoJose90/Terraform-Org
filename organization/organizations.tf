@@ -1,6 +1,6 @@
 ###############################################################################
 # AWS Organizations OUs, Accounts, and Delegated Administrators
-###############################################################################
+##############################################################################
 
 # This resource is used to move the AWS Organization from the management account to a new account.
 moved {
