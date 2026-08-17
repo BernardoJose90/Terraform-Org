@@ -113,3 +113,37 @@ resource "aws_iam_role_policy" "terraform_deploy_state_bucket_policy_access" {
     ]
   })
 }
+
+###############################################################################
+# TerraformPlan's lock-object access.
+#
+# TerraformPlan only has AWS-managed ReadOnlyAccess (s3:Get*/List*/Head*, no
+# Put/Delete). use_lockfile = true means every `terraform plan` — plan locks
+# by default, not just apply — needs s3:PutObject + s3:DeleteObject on
+# <key>.tflock to acquire/release the lock, which ReadOnlyAccess doesn't
+# grant. Scoped to exactly the two .tflock objects, not the state objects
+# themselves or the bucket generally — TerraformPlan still can't write real
+# state or infrastructure, only this ephemeral lock marker.
+###############################################################################
+
+resource "aws_iam_role_policy" "terraform_plan_lock_access" {
+  name = "StateLockObjectAccess"
+  role = split("/", module.terraform_deploy_role.plan_role_arn)[1]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = [
+          "arn:aws:s3:::james-terraform-state-2026/org/terraform.tfstate.tflock",
+          "arn:aws:s3:::james-terraform-state-2026/platform/terraform.tfstate.tflock"
+        ]
+      }
+    ]
+  })
+}

@@ -58,26 +58,3 @@ resource "aws_iam_role_policy" "github_discovery_ssm_read" {
   })
 }
 
-###############################################################################
-# Account Tiers (SSM Parameters)
-###############################################################################
-
-locals {
-  account_tiers = {
-    management         = "production-approval"
-    security           = "production-approval"
-    security-analytics = "production-approval"
-    network            = "production-approval"
-    monitoring         = "automated"
-    production         = "production-approval"
-    development        = "automated"
-  }
-}
-
-resource "aws_ssm_parameter" "account_tier" {
-  for_each = local.account_tiers
-
-  name  = "/organizations/tiers/${each.key}"
-  type  = "String"
-  value = each.value
-}

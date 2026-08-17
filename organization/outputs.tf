@@ -10,10 +10,6 @@ output "root_id" {
   value = local.root_id
 }
 
-output "discovery_role_arn" {
-  value = aws_iam_role.github_discovery.arn
-}
-
 # Optional: If you need account IDs in Terraform outputs
 # output "account_ids" {
 #   value = {
