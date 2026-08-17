@@ -33,6 +33,15 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Verify account_emails is populated
+        if: matrix.dir == 'organization'
+        run: |
+          if [ -z "$TF_VAR_account_emails" ]; then
+            echo "TF_VAR_account_emails is empty. Check ACCOUNT_EMAILS_JSON exists in the Secrets tab (not Variables)."
+            exit 1
+          fi
+          echo "$TF_VAR_account_emails" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d)} keys: {sorted(d.keys())}')"
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
