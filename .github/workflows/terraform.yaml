@@ -5,28 +5,43 @@ on:
     branches: [main]
     paths:
       - "**.tf"
-      - "**.tf"
       - "**.tfvars"
       - "**/.terraform.lock.hcl"
       - ".github/workflows/**"
   push:
     branches: [main]
+    # Kept in sync with the pull_request paths above on purpose. These used to
+    # differ (push only watched **.tf) which meant a merged PR that only
+    # touched a .tfvars or lock file never triggered a push event at all —
+    # terraform-apply silently never ran and nobody was told.
     paths:
       - "**.tf"
+      - "**.tfvars"
+      - "**/.terraform.lock.hcl"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 env:
   TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
+  TERRAFORM_VERSION: "1.11.4"
 
 permissions:
   id-token: write
   contents: read
   pull-requests: write
+  # actions:read lets terraform-apply look up and download the plan artifact
+  # from the PR's own workflow run (a different run than the push-triggered
+  # one that's applying it) — see resolve-pr/download-reviewed below.
+  actions: read
+  # security-events:write lets the Checkov job publish results to the repo's
+  # Security tab (Code scanning alerts) instead of only living in job logs.
+  security-events: write
 
 jobs:
   terraform-validate:
     name: Validate (${{ matrix.dir }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         dir: [organization, platform]
@@ -49,7 +64,10 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: 1.11.4
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive -diff
 
       - name: Terraform Init
         run: terraform init -backend=false
@@ -57,9 +75,53 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+  security-scan:
+    name: Security Scan (Checkov, ${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        dir: [organization, platform]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # soft_fail: true is deliberate and TEMPORARY for the first rollout —
+      # this repo has never run Checkov before, so the first pass will almost
+      # certainly flag things that are fine on purpose for a management
+      # account (e.g. the root-principal state bucket policy, see
+      # state-bucket-policy-scoping). Review the findings in the Security tab,
+      # add real exceptions for the accepted ones, then flip this to false so
+      # the check actually blocks future regressions.
+      - name: Checkov Security Scan
+        id: checkov
+        uses: bridgecrewio/checkov-action@358405ddafaa109ad35d3d607bbc7cf933c742d9
+        with:
+          directory: ${{ matrix.dir }}
+          output_format: cli,sarif
+          download_external_modules: true
+          quiet: false
+          soft_fail: true
+
+      - name: Upload Checkov SARIF report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checkov-report-${{ matrix.dir }}
+          path: results.sarif
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          sarif_file: results.sarif
+          category: checkov-${{ matrix.dir }}
+
   terraform-plan:
     name: Plan (${{ matrix.dir }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: terraform-validate
     if: github.event_name == 'pull_request'
     strategy:
@@ -75,7 +137,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: 1.11.4
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -87,24 +149,48 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      # -out saves the exact plan to a file. terraform-apply downloads this
+      # same file and applies it directly instead of re-planning at merge
+      # time — what got reviewed on the PR is what gets applied, full stop.
       - name: Terraform Plan
         id: plan
         # aws_iam_role_policy.terraform_plan_lock_access (platform/) applied
         # and confirmed 2026-08-17 — TerraformPlan can now Put/Delete the
         # .tflock objects for both org/ and platform/ keys, so normal
         # locking (no -lock=false) is safe again.
-        run: terraform plan -no-color -input=false
+        run: terraform plan -no-color -input=false -out=tfplan.binary
         continue-on-error: true
+
+      # hashicorp/setup-terraform wraps the terraform binary, so this step's
+      # stdout is available afterwards as steps.plan.outputs.stdout — no need
+      # to tee to a file ourselves. Destroy-count detection here doesn't
+      # block the job (a deliberate destroy is sometimes correct); it just
+      # makes it impossible to merge past unnoticed.
+      - name: Check for destructive changes
+        id: analyze
+        env:
+          PLAN: ${{ steps.plan.outputs.stdout }}
+        run: |
+          DESTROY_COUNT=$(echo "$PLAN" | grep -oE '[0-9]+ to destroy' | grep -oE '^[0-9]+' | head -1)
+          DESTROY_COUNT=${DESTROY_COUNT:-0}
+          if [ "$DESTROY_COUNT" -gt 0 ]; then
+            echo "⚠️  Plan destroys/replaces $DESTROY_COUNT resource(s)"
+            echo "has_destructive=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_destructive=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Update PR Comment
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PLAN: ${{ steps.plan.outputs.stdout }}
           DIR: ${{ matrix.dir }}
+          IS_DESTRUCTIVE: ${{ steps.analyze.outputs.has_destructive }}
         with:
           script: |
             let plan = process.env.PLAN || '(no output captured)';
             const dir = process.env.DIR;
+            const isDestructive = process.env.IS_DESTRUCTIVE === 'true';
 
             // GitHub rejects comment bodies over 65,536 chars. Without this
             // the API call fails and the comment never posts at all.
@@ -112,12 +198,43 @@ jobs:
               plan = plan.slice(0, 60000) + '\n... (truncated, see workflow logs)';
             }
 
+            const statusIcon = isDestructive ? '💥' : '📝';
+            const destructiveBanner = isDestructive
+              ? `\n> ⚠️ **This plan destroys or replaces at least one resource in \`${dir}\`.** Review the diff carefully before merging — this is not necessarily wrong, but it needs a deliberate look, not a skim.\n`
+              : '';
+
             // Hidden marker rather than matching on the heading text: the
             // plan output itself can contain the heading string. Marker is
             // per-directory so the organization/ and platform/ matrix legs
             // each own their own comment instead of racing to update one.
             const marker = `<!-- terraform-plan-${dir} -->`;
-            const output = `${marker}\n#### Terraform Plan 📝 (\`${dir}\`)\n\n<details><summary>Show Plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+            const output = `${marker}\n#### ${statusIcon} Terraform Plan (\`${dir}\`)\n${destructiveBanner}\n<details><summary>Show Plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`;
+
+            if (isDestructive) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: ['destructive-change'],
+                });
+              } catch (e) {
+                // Label doesn't exist in this repo yet — create it once, then retry.
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'destructive-change',
+                  color: 'd93f0b',
+                  description: "This PR's plan destroys or replaces at least one resource",
+                });
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: ['destructive-change'],
+                });
+              }
+            }
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -145,14 +262,32 @@ jobs:
         if: steps.plan.outcome == 'failure'
         run: exit 1
 
+      # Uploaded even for organization/ (which never auto-applies) for
+      # consistency and so a human has the exact reviewed plan file available
+      # if they ever want it for the manual `terraform apply` on that dir.
+      # Only platform/'s copy is actually downloaded by terraform-apply below.
+      - name: Upload plan file for apply reuse
+        if: steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tfplan-${{ matrix.dir }}
+          path: ${{ matrix.dir }}/tfplan.binary
+          retention-days: 30
+
   terraform-apply:
     name: Apply (platform)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # organization/ + platform/ split complete 2026-08-17: removed.tf and
     # import.tf deleted, both directories plan clean, TerraformPlan's lock
     # permission live. Re-enabled.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: terraform-validate
+    # Gates this job behind the "management-approval" GitHub Environment —
+    # configured with required reviewers in repo Settings → Environments, not
+    # in this file. That's what actually makes a push to main pause for a
+    # human click instead of auto-applying immediately.
+    environment: management-approval
     concurrency:
       group: tf-apply-platform
       cancel-in-progress: false
@@ -166,7 +301,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: 1.11.4
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -175,8 +310,90 @@ jobs:
           aws-region: eu-west-2
           role-session-name: gha-apply-platform
 
+      # This workflow runs on `push` to main, so github.sha is the new merge/
+      # squash/rebase commit — it won't match the PR commit that produced the
+      # plan artifact. Find the PR that this commit came from instead, so the
+      # download below can look it up regardless of merge method.
+      - name: Resolve PR number for this commit
+        id: resolve-pr
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+            });
+            const match = prs.find(p => p.merged_at) || prs[0];
+            core.setOutput('pr_number', match ? String(match.number) : '');
+            core.info(match
+              ? `Commit ${context.sha} -> PR #${match.number}`
+              : `Commit ${context.sha} has no associated PR (direct push or workflow_dispatch)`);
+
+      - name: Download reviewed plan (platform)
+        id: download-reviewed
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # v21
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: terraform.yaml
+          # Exactly one of pr/commit may be set (the action errors if both
+          # are) — pr wins when resolve-pr found one, otherwise this falls
+          # back to the (expected-to-miss) direct SHA match.
+          pr: ${{ steps.resolve-pr.outputs.pr_number }}
+          commit: ${{ steps.resolve-pr.outputs.pr_number == '' && github.sha || '' }}
+          name: tfplan-platform
+          path: platform
+          if_no_artifact_found: warn
+
+      - name: Check reviewed plan actually downloaded
+        id: reviewed
+        run: |
+          if [ -f tfplan.binary ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Found reviewed plan for platform"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ No reviewed plan found for platform"
+          fi
+
       - name: Terraform Init
         run: terraform init
 
-      - name: Terraform Apply
-        run: terraform apply -auto-approve -input=false -lock-timeout=120s
+      # A push to main must never silently fall back to computing and
+      # applying an unreviewed plan against the management account — that
+      # would defeat the whole point of requiring a reviewed PR plan. If the
+      # artifact is missing (expired, download failed, commit didn't resolve
+      # to a merged PR), fail loudly instead. workflow_dispatch is exempt
+      # because a human explicitly requested that run.
+      - name: Refuse unreviewed apply
+        if: steps.reviewed.outputs.found != 'true' && github.event_name == 'push'
+        run: |
+          echo "::error::No reviewed plan found for platform on a push to main."
+          echo ""
+          echo "This is not a normal condition. It means one of:"
+          echo "  - the plan artifact expired (retention is 30 days)"
+          echo "  - the artifact download failed or was rate limited"
+          echo "  - this commit could not be resolved back to a merged PR"
+          echo ""
+          echo "Refusing to compute and apply an unreviewed plan to the"
+          echo "management account. Open a fresh PR so terraform-plan produces"
+          echo "a reviewable plan, or run this workflow via workflow_dispatch"
+          echo "if you have deliberately decided a fresh plan is correct."
+          exit 1
+
+      - name: Terraform Apply (reviewed plan)
+        if: steps.reviewed.outputs.found == 'true'
+        run: |
+          echo "🚀 Applying the exact plan reviewed on the merged PR for platform"
+          terraform apply -input=false -lock-timeout=120s tfplan.binary
+
+      # Only reached by workflow_dispatch — all pushes are blocked above if
+      # there is no reviewed plan.
+      - name: Terraform Apply (fresh plan — workflow_dispatch fallback)
+        if: steps.reviewed.outputs.found != 'true' && github.event_name != 'push'
+        run: |
+          echo "⚠️ No reviewed plan for platform. This run is a manual workflow_dispatch,"
+          echo "   so a fresh plan is being computed and applied deliberately."
+          terraform plan -no-color -input=false -out=tfplan.binary
+          terraform apply -input=false -lock-timeout=120s tfplan.binary
