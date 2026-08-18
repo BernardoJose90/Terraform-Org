@@ -43,6 +43,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
+      # false so organization/'s result is unaffected by platform/'s (or vice
+      # versa) — these are two independent directories, and the default
+      # fail-fast cancels the sibling leg the moment one fails, hiding its
+      # real result behind a "cancelled" status instead of a pass/fail.
+      fail-fast: false
       matrix:
         dir: [organization, platform]
     defaults:
@@ -80,6 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
         dir: [organization, platform]
     steps:
@@ -125,6 +131,7 @@ jobs:
     needs: terraform-validate
     if: github.event_name == 'pull_request'
     strategy:
+      fail-fast: false
       matrix:
         dir: [organization, platform]
     defaults:
