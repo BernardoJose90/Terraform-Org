@@ -1,0 +1,87 @@
+name: Drift Detection
+
+# Nightly refresh-only plan against organization/ and platform/, independent
+# of whether either directory auto-applies. Apply automation only changes
+# how INTENDED changes land — it says nothing about changes that happen
+# outside Terraform entirely (a console edit during an incident, another
+# tool touching a managed resource, a manual apply that only half-completed
+# or ran from an uncommitted checkout). This matters most for organization/,
+# which never auto-applies at all — nothing else ever notices if it drifts —
+# but platform/ is checked too, since its auto-apply only fires on a merge
+# to main that touches platform/ paths; a change made any other way would
+# otherwise sit unnoticed indefinitely.
+#
+# A red run here relies on GitHub's built-in "scheduled workflow failed"
+# email notification rather than custom alerting — same mechanism
+# Terraform-Platform's own drift-detection.yaml uses. workflow_dispatch is
+# there so a run can be triggered on demand instead of waiting for the
+# schedule.
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # nightly, offset from Terraform-Platform's 02:00 run
+  workflow_dispatch:
+
+concurrency:
+  group: drift-detection
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.11.4"
+
+jobs:
+  drift-check:
+    name: Drift Check (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [organization, platform]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::145678291484:role/TerraformPlan
+          aws-region: eu-west-2
+          role-session-name: gha-drift-${{ matrix.dir }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      # -refresh-only isolates "has AWS diverged from what Terraform's state
+      # thinks is true" from "there's a pending code change not yet
+      # applied" — an ordinary `terraform plan` conflates both, which would
+      # make this job cry wolf on every routine unmerged PR. -detailed-
+      # exitcode: 0 = no drift, 1 = a real error, 2 = drift found.
+      - name: Terraform Plan (refresh-only drift check)
+        id: drift
+        run: |
+          set +e
+          terraform plan -refresh-only -no-color -input=false -detailed-exitcode
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          case "$exit_code" in
+            0) echo "✅ No drift detected in ${{ matrix.dir }}" ;;
+            2) echo "::warning::Drift detected in ${{ matrix.dir }} — AWS no longer matches Terraform's state. See the plan output above for exactly what changed." ;;
+            *) echo "::error::Drift check failed for ${{ matrix.dir }} — see the error above. This may not be drift, could be a real failure (auth, network, etc.)." ;;
+          esac
+
+      - name: Fail job if drift or error found
+        if: steps.drift.outputs.exit_code != '0'
+        run: exit 1
