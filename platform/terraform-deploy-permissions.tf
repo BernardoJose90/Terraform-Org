@@ -76,6 +76,27 @@ resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
           "arn:aws:iam::145678291484:role/TerraformDeploy",
           "arn:aws:iam::145678291484:role/TerraformPlan"
         ]
+      },
+      {
+        # A permissions boundary doesn't grant anything by itself — it only
+        # narrows what an actual identity policy grants (AWS IAM User Guide:
+        # "does not provide permissions on its own"). terraform-deploy-
+        # boundary.tf's own ReadOwnBoundaryPolicy statement is the boundary
+        # half of that AND; this is the identity-policy half. Without both,
+        # TerraformDeploy can't even read its own boundary to refresh it in
+        # state — confirmed by testing as the assumed role, not just
+        # reviewing the HCL (GetPolicy came back AccessDenied without this).
+        # Deliberately read-only: no CreatePolicyVersion/DeletePolicy here,
+        # so TerraformDeploy still can't edit or widen its own ceiling — see
+        # terraform-deploy-boundary.tf's file header for why.
+        Sid    = "ReadOwnPermissionsBoundary"
+        Effect = "Allow"
+        Action = [
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListPolicyVersions"
+        ]
+        Resource = "arn:aws:iam::145678291484:policy/TerraformDeployPermissionsBoundary"
       }
     ]
   })
