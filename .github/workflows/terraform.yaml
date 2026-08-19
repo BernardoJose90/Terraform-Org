@@ -91,13 +91,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # soft_fail: true is deliberate and TEMPORARY for the first rollout —
-      # this repo has never run Checkov before, so the first pass will almost
-      # certainly flag things that are fine on purpose for a management
-      # account (e.g. the root-principal state bucket policy, see
-      # state-bucket-policy-scoping). Review the findings in the Security tab,
-      # add real exceptions for the accepted ones, then flip this to false so
-      # the check actually blocks future regressions.
+      # First-rollout findings triaged: two accepted as deliberate (inline
+      # #checkov:skip comments on the resources themselves, with reasons —
+      # platform/iam.tf, organization/ssm.tf), one actually fixed via a
+      # permissions boundary (terraform-deploy-boundary.tf) rather than
+      # skipped, since it was a real gap. soft_fail is off — this check now
+      # blocks future regressions instead of just reporting them.
       - name: Checkov Security Scan
         id: checkov
         uses: bridgecrewio/checkov-action@358405ddafaa109ad35d3d607bbc7cf933c742d9
@@ -105,8 +104,32 @@ jobs:
           directory: ${{ matrix.dir }}
           output_format: cli,sarif
           download_external_modules: true
+          # Vendored dependency code fetched fresh from Terraform-Platform's
+          # pinned commit every run — inline #checkov:skip comments here
+          # would be pointless (overwritten by the next download). Its
+          # findings (broad ec2:*/IAM permissions in the shared module) are
+          # the ones the permissions boundary actually mitigates; scanning
+          # source we don't own and can't annotate just adds unactionable
+          # noise on every run.
+          # Relative to `directory` above (platform/ or organization/), not
+          # the repo root — confirmed by testing: "platform/.external_modules"
+          # silently matched nothing and the vendored module kept scanning.
+          skip_path: ".external_modules"
+          # skip_path above stops the vendored file from being scanned
+          # standalone, but Checkov still evaluates it through the graph via
+          # the calling module block (module.terraform_deploy_role...),
+          # confirmed by testing locally — these 4 always land on that one
+          # shared-module resource (aws_iam_policy_document.permissions:
+          # ec2:*, unconstrained iam:CreateRole/AttachRolePolicy). Already
+          # mitigated by terraform-deploy-boundary.tf, not just ignored —
+          # see that file's header for the real fix. Global, not per-resource
+          # (Checkov's CLI has no per-resource skip for vendored code we
+          # can't add inline comments to), but this repo has exactly one
+          # resource that could ever trigger these four, so the blast radius
+          # of the skip matches the blast radius of the finding.
+          skip_check: "CKV_AWS_107,CKV_AWS_109,CKV_AWS_111,CKV_AWS_356"
           quiet: false
-          soft_fail: true
+          soft_fail: false
 
       - name: Upload Checkov SARIF report
         if: always()

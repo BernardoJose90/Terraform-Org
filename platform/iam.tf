@@ -22,6 +22,10 @@ resource "aws_iam_policy" "terraform_org_ssm" {
 }
 
 resource "aws_iam_role" "terraform_org" {
+  # checkov:skip=CKV_AWS_61:Deliberate — trusts the management account root,
+  # same pattern already used for the state bucket policy (see
+  # state-bucket-policy-scoping notes). Single fully-owned account, not
+  # multi-tenant, so scoping to specific role ARNs buys nothing here.
   name = "TerraformOrgRole"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

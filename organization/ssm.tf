@@ -3,6 +3,11 @@
 ###############################################################################
 
 resource "aws_ssm_parameter" "account_ids" {
+  # checkov:skip=CKV2_AWS_34:Account IDs, not secrets — they appear in ARNs
+  # and cross-account trust policies throughout this repo already.
+  # checkov:skip=CKV_AWS_337:Same reasoning — SecureString/KMS CMK would add
+  # a key and kms:Decrypt to every consumer (this repo's own roles plus every
+  # member account's read role) for content that was never confidential.
   for_each = {
     security           = aws_organizations_account.security.id
     security_analytics = aws_organizations_account.security_analytics.id
@@ -40,6 +45,9 @@ locals {
 }
 
 resource "aws_ssm_parameter" "account_tier" {
+  # checkov:skip=CKV2_AWS_34:Tier labels like "production-approval" — config
+  # strings, not secrets. Same reasoning as account_ids above.
+  # checkov:skip=CKV_AWS_337:Same reasoning, KMS CMK variant of the same check.
   for_each = local.account_tiers
 
   name  = "/organizations/tiers/${each.key}"
