@@ -4,7 +4,7 @@
 ###############################################################################
 
 module "terraform_deploy_role" {
-  source = "git::https://github.com/BernardoJose90/Terraform-Platform.git//modules/terraform-deploy-role?ref=bd438c672b63ef4a7d1b1a2a88f5dc77615fd08c"
+  source = "git::https://github.com/BernardoJose90/Terraform-Platform.git//modules/terraform-deploy-role?ref=d25d3ef32be0fa683f4ae7b9d6d4e7b9d7c76e20"
 
   management_account_id = var.management_account_id
   account_name          = var.account_name
