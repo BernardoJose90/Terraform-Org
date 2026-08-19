@@ -25,6 +25,7 @@
 - [CI/CD](#cicd)
 - [Security Notes](#security-notes)
 - [Known Issues / TODOs](#known-issues--todos)
+- [License](#license)
 
 ---
 
@@ -236,3 +237,9 @@ Both root modules share the same S3 backend bucket but use separate keys, so the
 
 - **`platform/main.tf` pins `terraform_deploy_role` to a commit SHA, not `ref=main`.** Upstream (`Terraform-Platform`) deleted `modules/terraform-deploy-role` on `main` and replaced it with `modules/github-oidc-roles`, which widens `TerraformDeploy`'s OIDC trust from main-branch-only to any-ref. Migrating is a real, separate decision (importing the OIDC provider as a managed resource, `state mv` for a renamed policy, accepting or overriding the trust widening) — evaluated once, not done.
 - **`TerraformDeploy`'s IAM-management permissions were gap-filled after the fact** (`platform/terraform-deploy-permissions.tf`) — the shared module's built-in policy was written for EC2/instance-profile use cases and never covered standalone customer-managed policies, inline role policies, trust-policy updates, or reading the GitHub OIDC provider, all of which this account's own resources need. Surfaced by the first real `terraform-apply` run against `platform/`, not caught earlier since that job was previously unreachable (see workflow history).
+
+---
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE). Note this only covers the Terraform/CI configuration in this repo; it says nothing about the AWS account IDs, org structure, or naming conventions it happens to reference, none of which are secret but none of which are "licensed" in any meaningful sense either.
