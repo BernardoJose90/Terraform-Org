@@ -1,24 +1,20 @@
 name: Terraform - Management Account
 
 on:
+  # No `paths:` filter here on purpose. This repo's branch ruleset requires
+  # Validate/Security Scan/Plan (organization + platform) as required status
+  # checks on every PR into main — a `paths:` filter on the trigger means the
+  # workflow (and therefore those checks) never even starts a run for a PR
+  # that doesn't touch a matching path (e.g. a README-only change), and
+  # GitHub then shows the required checks as permanently "waiting" with
+  # nothing that will ever report them — a real merge deadlock, not a
+  # transient failure. Path-based skipping now happens *inside* the workflow
+  # instead, via detect-changes below, so every PR gets a real (fast, if
+  # nothing relevant changed) pass/fail for every required check.
   pull_request:
     branches: [main]
-    paths:
-      - "**.tf"
-      - "**.tfvars"
-      - "**/.terraform.lock.hcl"
-      - ".github/workflows/**"
   push:
     branches: [main]
-    # Kept in sync with the pull_request paths above on purpose. These used to
-    # differ (push only watched **.tf) which meant a merged PR that only
-    # touched a .tfvars or lock file never triggered a push event at all —
-    # terraform-apply silently never ran and nobody was told.
-    paths:
-      - "**.tf"
-      - "**.tfvars"
-      - "**/.terraform.lock.hcl"
-      - ".github/workflows/**"
   workflow_dispatch:
 
 env:
@@ -37,10 +33,65 @@ permissions:
   security-events: write
 
 jobs:
+  # Cheap, no matrix — computes per-directory relevance once so the matrix
+  # jobs below can each skip their own leg independently (a platform/-only
+  # PR shouldn't also spend time re-validating organization/, and vice
+  # versa). Downstream, a skipped *step* still leaves its job reporting
+  # success (terraform-validate/security-scan/terraform-plan), and a skipped
+  # *job* itself also reports as passing (terraform-apply) — either way it
+  # satisfies a required status check, which is what actually unblocks a
+  # docs-only PR against the ruleset — see the `on:` comment above.
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      organization: ${{ steps.filter.outputs.organization || steps.dispatch-fallback.outputs.value }}
+      platform: ${{ steps.filter.outputs.platform || steps.dispatch-fallback.outputs.value }}
+    steps:
+      # Only needed for push events. dorny/paths-filter talks to the GitHub
+      # REST API directly for pull_request (no checkout required), but a
+      # push diffs against its previous commit via local git, which needs
+      # full history to stay correct across multi-commit or force-pushes —
+      # not just a shallow fetch-depth: 2.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        # workflow_dispatch has no base ref to diff against at all — handled
+        # by the dispatch-fallback step below instead, which just marks
+        # everything relevant. Matches this workflow's pre-existing
+        # behavior: workflow_dispatch always ran the full thing regardless
+        # of what changed, since `paths:` filters on `on:` never applied to
+        # it either (only to push/pull_request).
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          base: ${{ github.event_name == 'push' && github.event.before || '' }}
+          filters: |
+            organization:
+              - 'organization/**'
+              - '.github/workflows/terraform.yaml'
+            platform:
+              - 'platform/**'
+              - '.github/workflows/terraform.yaml'
+
+      - name: workflow_dispatch runs everything, unfiltered
+        id: dispatch-fallback
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
   terraform-validate:
     name: Validate (${{ matrix.dir }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: detect-changes
+    # No job-level `if:` here — the `matrix` context isn't available at the
+    # job level (only inside steps/strategy/etc.), so the per-directory skip
+    # is applied to every step below instead. A job with every step skipped
+    # still reports success, which is what satisfies the required check.
     # Scoped here (and on terraform-plan) instead of the workflow-level env
     # block — security-scan never runs terraform commands and terraform-apply
     # only ever touches platform/, so neither needs this secret in its
@@ -62,9 +113,10 @@ jobs:
     steps:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
 
       - name: Verify account_emails is populated
-        if: matrix.dir == 'organization'
+        if: matrix.dir == 'organization' && needs.detect-changes.outputs[matrix.dir] == 'true'
         run: |
           if [ -z "$TF_VAR_account_emails" ]; then
             echo "TF_VAR_account_emails is empty. Check ACCOUNT_EMAILS_JSON exists in the Secrets tab (not Variables)."
@@ -73,29 +125,37 @@ jobs:
           echo "$TF_VAR_account_emails" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d)} keys: {sorted(d.keys())}')"
 
       - name: Setup Terraform
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Terraform Format Check
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         run: terraform fmt -check -recursive -diff
 
       - name: Terraform Init
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         run: terraform init -backend=false
 
       - name: Terraform Validate
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         run: terraform validate
 
   security-scan:
     name: Security Scan (Checkov, ${{ matrix.dir }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: detect-changes
+    # No job-level `if:` — see terraform-validate's identical comment, same
+    # matrix-context-not-available-at-job-level reason.
     strategy:
       fail-fast: false
       matrix:
         dir: [organization, platform]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
 
       # First-rollout findings triaged: two accepted as deliberate (inline
       # #checkov:skip comments on the resources themselves, with reasons —
@@ -105,6 +165,7 @@ jobs:
       # blocks future regressions instead of just reporting them.
       - name: Checkov Security Scan
         id: checkov
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: bridgecrewio/checkov-action@358405ddafaa109ad35d3d607bbc7cf933c742d9
         with:
           directory: ${{ matrix.dir }}
@@ -138,7 +199,11 @@ jobs:
           soft_fail: false
 
       - name: Upload Checkov SARIF report
-        if: always()
+        # always() so this still runs if the Checkov step itself failed (not
+        # just skipped) — combined with the relevance check so it doesn't
+        # try to upload a results.sarif that was never produced because this
+        # directory had no relevant changes.
+        if: always() && needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: checkov-report-${{ matrix.dir }}
@@ -147,7 +212,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload SARIF to GitHub Security tab
-        if: always()
+        if: always() && needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           sarif_file: results.sarif
@@ -157,8 +222,15 @@ jobs:
     name: Plan (${{ matrix.dir }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: terraform-validate
+    needs: [detect-changes, terraform-validate]
     if: github.event_name == 'pull_request'
+    # No matrix reference in this job-level `if:` on purpose (not available —
+    # see terraform-validate's comment); the per-directory skip is applied
+    # to each step below instead. Depends on terraform-validate the normal
+    # way — that job only actually fails (as opposed to skipping its own
+    # steps) when its directory is genuinely relevant and broken, so the
+    # default needs-cascade here still does the right thing.
+    #
     # See terraform-validate's identical comment — scoped here because this
     # job's Terraform Plan step genuinely requires it for organization/
     # (terraform plan, unlike validate, fails without a value for a
@@ -175,13 +247,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
 
       - name: Setup Terraform
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Configure AWS Credentials
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: arn:aws:iam::145678291484:role/TerraformPlan
@@ -189,6 +264,7 @@ jobs:
           role-session-name: gha-plan-${{ matrix.dir }}
 
       - name: Terraform Init
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         run: terraform init
 
       # -out saves the exact plan to a file. terraform-apply downloads this
@@ -196,6 +272,7 @@ jobs:
       # time — what got reviewed on the PR is what gets applied, full stop.
       - name: Terraform Plan
         id: plan
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         # aws_iam_role_policy.terraform_plan_lock_access (platform/) applied
         # and confirmed 2026-08-17 — TerraformPlan can now Put/Delete the
         # .tflock objects for both org/ and platform/ keys, so normal
@@ -210,6 +287,7 @@ jobs:
       # makes it impossible to merge past unnoticed.
       - name: Check for destructive changes
         id: analyze
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         env:
           PLAN: ${{ steps.plan.outputs.stdout }}
         run: |
@@ -223,6 +301,7 @@ jobs:
           fi
 
       - name: Update PR Comment
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PLAN: ${{ steps.plan.outputs.stdout }}
@@ -323,8 +402,14 @@ jobs:
     # organization/ + platform/ split complete 2026-08-17: removed.tf and
     # import.tf deleted, both directories plan clean, TerraformPlan's lock
     # permission live. Re-enabled.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: terraform-validate
+    #
+    # Also requires needs.detect-changes.outputs.platform — this job isn't
+    # matrixed, so (unlike terraform-validate/security-scan/terraform-plan)
+    # it can check that directly at the job level. Without it, a push to
+    # main that only touched organization/ or docs would still spend a
+    # `management-approval` review request on an apply with nothing to do.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-changes.outputs.platform == 'true'
+    needs: [detect-changes, terraform-validate]
     # Gates this job behind the "management-approval" GitHub Environment —
     # configured with required reviewers in repo Settings → Environments, not
     # in this file. That's what actually makes a push to main pause for a
