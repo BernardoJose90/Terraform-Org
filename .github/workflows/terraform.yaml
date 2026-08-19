@@ -22,7 +22,6 @@ on:
   workflow_dispatch:
 
 env:
-  TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
   TERRAFORM_VERSION: "1.11.4"
 
 permissions:
@@ -42,6 +41,13 @@ jobs:
     name: Validate (${{ matrix.dir }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Scoped here (and on terraform-plan) instead of the workflow-level env
+    # block — security-scan never runs terraform commands and terraform-apply
+    # only ever touches platform/, so neither needs this secret in its
+    # environment at all. Only the two jobs that actually run terraform
+    # init/validate/plan against organization/ do.
+    env:
+      TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
     strategy:
       # false so organization/'s result is unaffected by platform/'s (or vice
       # versa) — these are two independent directories, and the default
@@ -153,6 +159,12 @@ jobs:
     timeout-minutes: 15
     needs: terraform-validate
     if: github.event_name == 'pull_request'
+    # See terraform-validate's identical comment — scoped here because this
+    # job's Terraform Plan step genuinely requires it for organization/
+    # (terraform plan, unlike validate, fails without a value for a
+    # required variable).
+    env:
+      TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
     strategy:
       fail-fast: false
       matrix:
