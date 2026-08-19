@@ -23,18 +23,13 @@ resource "aws_ssm_parameter" "account_ids" {
   }
 }
 
-###############################################################################
-# Account Tiers (SSM Parameters)
-#
-# Relocated from platform/discovery-role.tf (2026-08-17 split) — file move
-# only, not a state move. This resource isn't in the 14-resource migration
-# list, so it stays in organization/'s state; it just needed to live
-# somewhere other than a file that was leaving the directory.
-###############################################################################
+####################################################################################################
+# SSm parameters to store account tiers for discovery by Github Action and Terraform-Platform repos 
+####################################################################################################
 
 locals {
   account_tiers = {
-    management         = "production-approval"
+    management         = "management-approval"
     security           = "production-approval"
     security-analytics = "production-approval"
     network            = "production-approval"
