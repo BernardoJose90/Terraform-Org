@@ -4,19 +4,20 @@
 ###############################################################################
 
 module "terraform_deploy_role" {
-  # NOT YET PUSHED: this SHA is on a local, unpushed branch
-  # (fix/apply-retry-and-oidc-boundary-compat) in Terraform-Platform as of
-  # 2026-08-24. This ref will not resolve — `terraform init` will fail to
-  # fetch it — until that branch (or its commits) is pushed to GitHub.
-  # Also note the path change: the module was renamed from
-  # terraform-deploy-role to github-oidc-roles partway through this repo's
-  # history, well before this ref.
+  # Pinned to fix/apply-retry-and-oidc-boundary-compat's head commit in
+  # Terraform-Platform (pushed to origin). Note the path change: the module
+  # was renamed from terraform-deploy-role to github-oidc-roles partway
+  # through this repo's history, well before this ref.
   source = "git::https://github.com/BernardoJose90/Terraform-Platform.git//modules/github-oidc-roles?ref=30758a1031fb05b0138cbac6293e5756665685b8"
 
   management_account_id = var.management_account_id
   account_name          = var.account_name
   github_org            = var.github_org
   github_repo           = var.github_repo
+  # Must match this account's backend key (see providers.tf) — the module
+  # uses it to scope the state-bucket IAM permissions to this account's
+  # own prefix. See state-bucket-policy-scoping notes in Terraform-Org.
+  state_key_prefix = "platform"
   # terraform-apply (this repo's workflow) gates its apply job behind the
   # management-approval GitHub Environment, which changes the OIDC token's
   # sub claim to "repo:ORG/REPO:environment:management-approval". The
