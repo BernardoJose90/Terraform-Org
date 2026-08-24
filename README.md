@@ -23,6 +23,7 @@
 - [Outputs](#outputs)
 - [State](#state)
 - [CI/CD](#cicd)
+- [CI Failure Diagnosis](#ci-failure-diagnosis)
 - [Security Notes](#security-notes)
 - [Known Issues / TODOs](#known-issues--todos)
 - [License](#license)
@@ -218,6 +219,16 @@ Both root modules share the same S3 backend bucket but use separate keys, so the
 - **Apply** — **`platform/` only**, on push to `main`, gated behind the `management-approval` GitHub Environment (a human must approve). It downloads and applies the *exact* plan artifact reviewed on the merged PR rather than re-planning at merge time; a `workflow_dispatch` run falls back to a fresh plan+apply if no reviewed artifact is found. `organization/` has no apply job at all — see [Security Notes](#security-notes) for why.
 
 `.github/workflows/drift-detection.yaml` runs nightly (and on demand) against both directories as a refresh-only plan, so unmanaged drift (a console edit, a manual apply) doesn't go unnoticed — this matters most for `organization/`, which never auto-applies.
+
+---
+
+## 🩺 CI Failure Diagnosis
+
+`.github/workflows/diagnose.yml` fires after `terraform.yaml` finishes with `conclusion: failure`, fetches that run's failed-step logs, and posts a best-effort diagnosis (what failed / root cause / suggested fix / confidence) as a comment on the PR — described in prose only, never as a patch. It is read-only by design: `contents: read`, `actions: read`, `pull-requests: write` and nothing else. It never checks out anything but `prompts/diagnose.md`, never touches AWS, never pushes, and never opens or edits a PR.
+
+**Setup:** add an `ANTHROPIC_API_KEY` repository secret (Settings → Secrets and variables → Actions) with a key that has API access. Nothing else to configure.
+
+**`workflow_run` and forks — read this before assuming fork PRs are exempt.** `workflow_run` always runs the version of `diagnose.yml` committed to the *default branch*, regardless of which branch or PR triggered `terraform.yaml` — so editing this workflow only takes effect once merged to `main`, not from within an open PR that changes it. It is **not** true that fork PRs are skipped or that this job runs without secrets for them: `workflow_run` is exactly the pattern GitHub recommends *because* it keeps running, with full `secrets`/token access, even when the triggering `terraform.yaml` run came from a fork PR that itself had no secrets. That's by design (it's how a maintainer-controlled job can safely react to fork PR activity without checking out fork code) — but it does mean a fork PR's log output (error text, resource/commit names, etc.) is the least-trusted input this job ever sees. `prompts/diagnose.md` instructs the model to treat log content as data, never as instructions, precisely for that case.
 
 ---
 
