@@ -58,3 +58,5 @@ resource "aws_iam_role_policy" "github_discovery_ssm_read" {
   })
 }
 
+
+    # TEST: deliberately mis-indented comment to break terraform fmt -check (see test/diagnose-trigger)
