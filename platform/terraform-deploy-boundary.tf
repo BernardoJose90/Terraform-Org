@@ -121,7 +121,7 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
   # therefore the one that has to create/manage it, so it needs to be listed
   # here too — omitting it fails CreatePolicy with "no permissions boundary
   # allows the iam:CreatePolicy action" (seen 2026-08-24, first apply after
-  # the module bump that added this resource).
+  # the module bump that added this resource)
   statement {
     sid    = "ManageKnownPolicies"
     effect = "Allow"
