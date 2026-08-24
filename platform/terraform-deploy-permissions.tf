@@ -6,7 +6,8 @@
 # apply unreachable (push and pull_request triggers never coincide), so it
 # had literally never executed. This gap predates the organization/platform
 # split and was never caught. terraform_deploy_role's built-in `permissions`
-# policy (pinned module, ref 2ed2b8e0dd9c4ebd3fc54055878209b80e91d5b4) was
+# policy (pinned module, originally ref 2ed2b8e0dd9c4ebd3fc54055878209b80e91d5b4,
+# now 30758a1031fb05b0138cbac6293e5756665685b8 — see main.tf) was
 # written for EC2/instance-profile roles (ManageInstanceRoles:
 # CreateRole/GetRole/DeleteRole/TagRole, AttachRolePolicy/DetachRolePolicy
 # for MANAGED policy attachments) — it never covered standalone
