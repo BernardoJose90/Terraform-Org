@@ -27,7 +27,7 @@ module "terraform_deploy_role" {
   extra_trusted_environments = ["management-approval"]
   # platform/ already owns the account's GitHub OIDC provider itself (see
   # discovery-role.tf) — AWS allows only one per URL per account, so the
-  # module must not also try to create one.
+  # module must not also try to create oneßßß
   create_oidc_provider = false
   # Caps TerraformDeploy's effective permissions to what platform/ actually
   # manages — see terraform-deploy-boundary.tf for what this excludes and
