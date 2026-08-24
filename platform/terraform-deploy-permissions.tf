@@ -5,10 +5,11 @@
 # account — the old workflow's `needs: terraform-plan` on the apply job made
 # apply unreachable (push and pull_request triggers never coincide), so it
 # had literally never executed. This gap predates the organization/platform
-# split and was never caught. terraform_deploy_role's built-in `permissions`
-# policy (pinned module, originally ref 2ed2b8e0dd9c4ebd3fc54055878209b80e91d5b4,
-# now 30758a1031fb05b0138cbac6293e5756665685b8 — see main.tf) was
-# written for EC2/instance-profile roles (ManageInstanceRoles:
+# split and was never caught. At the time, TerraformDeploy still came from
+# Terraform-Platform's shared github-oidc-roles module (since replaced,
+# 2026-08-24, by terraform-deploy-role.tf — see that file's header); its
+# built-in `permissions` policy was written for EC2/instance-profile roles
+# (ManageInstanceRoles:
 # CreateRole/GetRole/DeleteRole/TagRole, AttachRolePolicy/DetachRolePolicy
 # for MANAGED policy attachments) — it never covered standalone
 # customer-managed policies (aws_iam_policy), inline role policies
@@ -24,7 +25,10 @@
 
 resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
   name = "IAMManagementAccess"
-  role = module.terraform_deploy_role.role_name
+  # Was module.terraform_deploy_role.role_name — same value ("TerraformDeploy")
+  # either way, so this is a no-op change now that the role is defined
+  # directly in terraform-deploy-role.tf. See moved.tf for the migration.
+  role = aws_iam_role.terraform_deploy.name
 
   policy = jsonencode({
     Version = "2012-10-17"
