@@ -82,6 +82,15 @@ jobs:
           fi
           tail -c 40000 trimmed_log.txt > log_excerpt.txt
 
+      # ubuntu-latest doesn't ship the claude CLI — confirmed missing by an
+      # actual failed run (`claude: command not found`, exit 127) before
+      # this step was added. Pinned to a version confirmed to exist on the
+      # npm registry at the time of writing; bump deliberately, not via a
+      # floating tag.
+      - name: Install Claude Code CLI
+        if: steps.find-pr.outputs.pr_number != ''
+        run: npm install -g @anthropic-ai/claude-code@2.1.241
+
       - name: Run diagnosis
         if: steps.find-pr.outputs.pr_number != ''
         env:
