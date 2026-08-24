@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: detect-changes
-    # No job-level `if:` here — the `matrix` context isn't available at the
+    # No job-level `if:` here   the `matrix` context isn't available at the
     # job level (only inside steps/strategy/etc.), so the per-directory skip
     # is applied to every step below instead. A job with every step skipped
     # still reports success, which is what satisfies the required check.
