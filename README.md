@@ -5,7 +5,7 @@
 > The repo is two independent root modules, each with its own state:
 >
 > - **[`organization/`](organization/)** — bootstraps the AWS Organization itself: OUs, member accounts, SCPs, and publishes account IDs/tiers to SSM. **Never auto-applied by CI** — applied manually via the `management` AWS profile.
-> - **[`platform/`](platform/)** — everything else the management account needs to run this repo's own CI safely: the `TerraformDeploy`/`TerraformPlan` IAM roles (via a module from Terraform-Platform), a read-only GitHub OIDC discovery role, the shared state bucket's policy, and a permissions boundary that caps `TerraformDeploy`. **This is the directory CI auto-applies** on merge to `main`, gated behind a `management-approval` GitHub Environment.
+> - **[`platform/`](platform/)** — everything else the management account needs to run this repo's own CI safely: the `TerraformDeploy`/`TerraformPlan` IAM roles (defined directly in this repo), a read-only GitHub OIDC discovery role, the shared state bucket's policy, and a permissions boundary that caps `TerraformDeploy`. **This is the directory CI auto-applies** on merge to `main`, gated behind a `management-approval` GitHub Environment.
 
 ---
 
@@ -59,13 +59,15 @@
 
 | Resource | Count | Notes |
 |---|---|---|
-| `module.terraform_deploy_role` | 1 | Sourced from `Terraform-Platform`'s `modules/terraform-deploy-role`, pinned to a commit SHA (not `ref=main`, see [Known Issues](#known-issues--todos)). Creates `TerraformDeploy`/`TerraformPlan` and their OIDC trust, gated behind the `management-approval` GitHub Environment |
-| `aws_iam_policy.terraform_deploy_boundary` | 1 | Permissions boundary applied to `TerraformDeploy` — caps the module's shared (wider) permissions policy down to exactly the roles/policies/SSM path this account manages |
-| `aws_iam_role.github_discovery` | 1 | `GitHubActionsAccountDiscovery` — read-only role assumed by **Terraform-Platform's** CI (a different repo) to discover account IDs from SSM |
-| `aws_iam_role.terraform_org` | 1 | `TerraformOrgRole` — lets `organization/`'s manual applies write to SSM |
-| `aws_iam_role.ssm_read_only` | 1 | `SSMReadOnly` — cross-account role each member account can assume to read `/organizations/*` |
-| `aws_s3_bucket_policy.state` | 1 | Per-account, per-prefix policy on the (hand-created, not Terraform-managed) shared state bucket `james-terraform-state-2026` |
-| `aws_iam_role_policy` (inline) | 4 | Gap-fill grants on `TerraformDeploy`/`TerraformPlan` for IAM management, the state bucket policy, and S3 lock-object access — see [Known Issues](#known-issues--todos) |
+| `aws_iam_role.terraform_deploy` / `.terraform_plan` | 2 | `TerraformDeploy`/`TerraformPlan` — defined directly in this repo (`terraform-deploy-role.tf`, `terraform-plan-role.tf`), not sourced from a shared module. OIDC trust gated behind the `management-approval` GitHub Environment |
+| `aws_iam_policy.terraform_deploy_boundary` | 1 | Permissions boundary applied to `TerraformDeploy` — a second layer of defense capping its own (already-minimal) identity policy down to exactly the roles/policies/SSM path this account manages |
+| `aws_iam_policy.terraform_plan_s3_role` | 1 | `TerraformPlanS3Policy` — scopes `TerraformPlan`'s state-locking S3 access to this account's own prefix |
+| `aws_iam_role.github_discovery` | 1 | `GitHubActionsAccountDiscovery` (`discovery-role.tf`) — read-only role assumed by **Terraform-Platform's** CI (a different repo) to discover account IDs from SSM |
+| `aws_iam_role.terraform_org` | 1 | `TerraformOrgRole` (`terraform-org-role.tf`) — lets `organization/`'s manual applies write to SSM |
+| `aws_iam_role.ssm_read_only` | 1 | `SSMReadOnly` (`ssm-read-only-role.tf`) — cross-account role each member account can assume to read `/organizations/*` |
+| `aws_s3_bucket_policy.state` | 1 | Per-account, per-prefix policy (`state-bucket-policy.tf`) on the (hand-created, not Terraform-managed) shared state bucket `james-terraform-state-2026` |
+| `aws_iam_role_policy` (inline) | 5 | Grants on `TerraformDeploy`/`TerraformPlan` for state access, IAM management, the state bucket policy, and S3 lock-object access |
+| `aws_iam_role_policy_attachment` | 2 | Attaches AWS-managed `ReadOnlyAccess` and `TerraformPlanS3Policy` to `TerraformPlan` |
 | `data.aws_ssm_parameter.account_ids_sso` | 6 | Reads each member account's ID back out of SSM (published by `organization/`) for use in the state bucket policy and `SSMReadOnly`'s trust policy |
 
 ---
@@ -214,7 +216,7 @@ Both root modules share the same S3 backend bucket but use separate keys, so the
 `.github/workflows/terraform.yaml` runs against **both** directories as a matrix (`organization`, `platform`):
 
 - **Validate** — `terraform fmt -check`, `terraform init -backend=false`, `terraform validate`, on every PR and push touching `**.tf`/`**.tfvars`/lockfiles.
-- **Security Scan** — Checkov, blocking (`soft_fail: false`), with SARIF results uploaded to the repo's Security tab. A handful of findings from the vendored `terraform_deploy_role` module (broad `ec2:*`/IAM grants it needs for accounts that actually run EC2) are skipped globally since this account's own `terraform-deploy-boundary.tf` already mitigates them — see that file's header.
+- **Security Scan** — Checkov, blocking (`soft_fail: false`), with SARIF results uploaded to the repo's Security tab. See [Known Issues](#known-issues--todos) for a stale entry in its `skip_check` list.
 - **Plan** — on pull requests, assumes `TerraformPlan`, plans both directories, and posts/updates a PR comment per directory with the plan output (flagging destructive changes with a `destructive-change` label).
 - **Apply** — **`platform/` only**, on push to `main`, gated behind the `management-approval` GitHub Environment (a human must approve). It downloads and applies the *exact* plan artifact reviewed on the merged PR rather than re-planning at merge time; a `workflow_dispatch` run falls back to a fresh plan+apply if no reviewed artifact is found. `organization/` has no apply job at all — see [Security Notes](#security-notes) for why.
 
@@ -235,19 +237,23 @@ Both root modules share the same S3 backend bucket but use separate keys, so the
 ## 🔐 Security Notes
 
 - **Real email addresses live in `organization/secrets.auto.tfvars`**, which is gitignored via the `*.auto.tfvars` pattern (not committed). `organization/terraform.tfvars` itself contains no secrets. CI supplies the same values via the `ACCOUNT_EMAILS_JSON` GitHub secret (`TF_VAR_account_emails`), scoped only to the jobs that need it.
-- **`role_name = "OrganizationAccountAccessRole"`** is the default AWS-managed role granted to the *management account* in every member account it creates. It has full administrative access in each member account — the `terraform_deploy_role` module and downstream SSO permission sets are what actually constrain day-to-day access; this role is the "break-glass" path.
+- **`role_name = "OrganizationAccountAccessRole"`** is the default AWS-managed role granted to the *management account* in every member account it creates. It has full administrative access in each member account — `TerraformDeploy` (`platform/terraform-deploy-role.tf`) and downstream SSO permission sets are what actually constrain day-to-day access; this role is the "break-glass" path.
 - **`prevent_destroy = true`** on every account resource is intentional friction against accidentally deleting a live AWS account via `terraform destroy`.
 - Delegated administration is scoped to exactly four services (GuardDuty, Security Hub, Access Analyzer, IAM Identity Center) — the Security account is not a blanket delegated admin for the whole org. IAM Identity Center resources (permission sets, groups, users, account assignments) are managed from `member-accounts/security/sso.tf` in the Terraform-Platform repo, not from here.
 - The region-restriction SCP is deliberately scoped to the **Dev OU only** while it's being validated — see [Region Restriction SCP](#region-restriction-scp). Do not attach it to `local.root_id` until it's been confirmed not to break normal operations, since a mistake at root can affect the management account's own access.
 - **`organization/` has no CI apply job at all.** `TerraformDeploy` (defined in `platform/`) deliberately has no `organizations:*` permissions — AWS Organizations administration (account creation, OUs, SCPs) is applied manually via an admin AWS profile (`management`), not automated, per AWS's own guidance to keep the management account's automation least-privilege. Only `platform/` auto-applies, and only on merge to `main` behind the `management-approval` environment gate.
-- **`TerraformDeploy`'s permissions boundary** (`platform/terraform-deploy-boundary.tf`) caps the shared `terraform_deploy_role` module's wider policy (`ec2:*`, unconstrained `iam:CreateRole`/`AttachRolePolicy`) down to exactly the fixed set of roles, policies, and SSM path this account actually manages — closing a real privilege-escalation shape flagged by Checkov (create/modify an arbitrary role, attach `AdministratorAccess`). `TerraformDeploy` can read but not edit or detach its own boundary, so a compromised or buggy CI run can't widen its own ceiling.
+- **`TerraformDeploy`'s permissions boundary** (`platform/terraform-deploy-boundary.tf`) caps its own identity policy (`platform/terraform-deploy-role.tf` + `terraform-deploy-permissions.tf`) down to exactly the fixed set of roles, policies, and SSM path this account actually manages. Originally added to close a real privilege-escalation shape (`ec2:*`, unconstrained `iam:CreateRole`/`AttachRolePolicy`) inherited from a shared IAM-role module this account used to source `TerraformDeploy`/`TerraformPlan` from; kept as a second layer of defense even after that role became a dedicated, already-minimal definition owned directly in this repo (2026-08-24 — see that file's header). `TerraformDeploy` can read but not edit or detach its own boundary, so a compromised or buggy CI run can't widen its own ceiling.
 
 ---
 
 ## 🐛 Known Issues / TODOs
 
-- **`platform/main.tf` pins `terraform_deploy_role` to a commit SHA, not `ref=main`.** Upstream (`Terraform-Platform`) deleted `modules/terraform-deploy-role` on `main` and replaced it with `modules/github-oidc-roles`, which widens `TerraformDeploy`'s OIDC trust from main-branch-only to any-ref. Migrating is a real, separate decision (importing the OIDC provider as a managed resource, `state mv` for a renamed policy, accepting or overriding the trust widening) — evaluated once, not done.
-- **`TerraformDeploy`'s IAM-management permissions were gap-filled after the fact** (`platform/terraform-deploy-permissions.tf`) — the shared module's built-in policy was written for EC2/instance-profile use cases and never covered standalone customer-managed policies, inline role policies, trust-policy updates, or reading the GitHub OIDC provider, all of which this account's own resources need. Surfaced by the first real `terraform-apply` run against `platform/`, not caught earlier since that job was previously unreachable (see workflow history).
+- **`terraform.yaml`'s Security Scan `skip_check` list is stale.** It names
+  5 Checkov check IDs (`CKV_AWS_107`, `109`, `110`, `111`, `356`) that only
+  ever fired on `TerraformDeploy`'s permissions policy back when that role
+  was sourced from a shared module — that policy no longer exists
+  (`TerraformDeploy` is now a dedicated definition, `platform/terraform-
+  deploy-role.tf`). Safe to remove the whole list; not yet done.
 
 ---
 
