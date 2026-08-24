@@ -185,16 +185,21 @@ jobs:
           # skip_path above stops the vendored file from being scanned
           # standalone, but Checkov still evaluates it through the graph via
           # the calling module block (module.terraform_deploy_role...),
-          # confirmed by testing locally — these 4 always land on that one
+          # confirmed by testing locally — these 5 always land on that one
           # shared-module resource (aws_iam_policy_document.permissions:
-          # ec2:*, unconstrained iam:CreateRole/AttachRolePolicy). Already
-          # mitigated by terraform-deploy-boundary.tf, not just ignored —
-          # see that file's header for the real fix. Global, not per-resource
-          # (Checkov's CLI has no per-resource skip for vendored code we
-          # can't add inline comments to), but this repo has exactly one
-          # resource that could ever trigger these four, so the blast radius
-          # of the skip matches the blast radius of the finding.
-          skip_check: "CKV_AWS_107,CKV_AWS_109,CKV_AWS_111,CKV_AWS_356"
+          # ec2:*, unconstrained iam:CreateRole/AttachRolePolicy/PassRole).
+          # Already mitigated by terraform-deploy-boundary.tf, not just
+          # ignored — see that file's header for the real fix. Global, not
+          # per-resource (Checkov's CLI has no per-resource skip for vendored
+          # code we can't add inline comments to), but this repo has exactly
+          # one resource that could ever trigger these five, so the blast
+          # radius of the skip matches the blast radius of the finding.
+          # CKV_AWS_110 (privilege escalation) joined the other 4 after the
+          # module was bumped to pull in a new PassRole statement
+          # (PassFlowLogDeliveryRole, for VPC flow-log support this account
+          # doesn't use) — same shared-policy resource, same boundary
+          # mitigation, just a new action combination for Checkov to notice.
+          skip_check: "CKV_AWS_107,CKV_AWS_109,CKV_AWS_110,CKV_AWS_111,CKV_AWS_356"
           quiet: false
           soft_fail: false
 

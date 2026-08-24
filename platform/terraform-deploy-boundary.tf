@@ -10,7 +10,7 @@
 # /organizations/*. None of it touches EC2, VPC, VPN, or CloudWatch, and it
 # never creates or modifies an IAM role/policy outside the fixed list below.
 #
-# Surfaced by Checkov (CKV_AWS_61/107/109/111/356) — findings were real: the
+# Surfaced by Checkov (CKV_AWS_61/107/109/110/111/356) — findings were real: the
 # shared policy's grant is broader than this account uses, and the
 # unconstrained iam:CreateRole/AttachRolePolicy is a genuine
 # privilege-escalation shape (create or modify an arbitrary role, attach
@@ -31,6 +31,17 @@
 # this boundary. Every other account calling the same module is completely
 # unaffected — permissions_boundary_arn defaults to null and only this
 # account passes a value (see main.tf).
+#
+# CKV_AWS_110 specifically (privilege escalation via CreateRole +
+# AttachRolePolicy/PutRolePolicy + PassRole together) is closed the same way:
+# ManageKnownRoles below scopes CreateRole/AttachRolePolicy/PutRolePolicy to
+# the 5 named role ARNs only, and this boundary grants no iam:PassRole at
+# all — so even though the shared module's PassFlowLogDeliveryRole statement
+# grants iam:PassRole on Resource "*", TerraformDeploy in this account can't
+# use it. That module statement is new as of the pinned commit this account
+# bumped to (adds VPC flow-log support other accounts use); this account
+# still doesn't touch flow logs, so nothing here needed to change to stay
+# closed — it already was.
 #
 # Deliberately excluded from what TerraformDeploy itself is allowed to touch:
 # this boundary's own policy (content or attachment). If TerraformDeploy
