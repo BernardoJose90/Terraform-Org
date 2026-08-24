@@ -58,5 +58,9 @@ resource "aws_iam_role_policy" "github_discovery_ssm_read" {
   })
 }
 
-
-# TEST: deliberately mis-indented comment to break terraform fmt -check (see test/diagnose-trigger)
+# Was platform/outputs.tf — merged here 2026-08-25 since this is its only
+# consumer (a human copies this into Terraform-Platform's DISCOVERY_ROLE_ARN
+# GitHub Actions variable; see that repo's workflows).
+output "discovery_role_arn" {
+  value = aws_iam_role.github_discovery.arn
+}
