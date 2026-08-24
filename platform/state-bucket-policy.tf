@@ -86,16 +86,17 @@ resource "aws_s3_bucket_policy" "state" {
   policy = data.aws_iam_policy_document.state_bucket_policy.json
 }
 
-# The management account's TerraformDeploy role (module.terraform_deploy_role,
+# The management account's TerraformDeploy role (terraform-deploy-role.tf,
 # used by CI on push to main) only has GetObject/PutObject/DeleteObject/
 # ListBucket on the state bucket — none of those cover reading or writing a
 # bucket *policy*. Without this, CI's apply of aws_s3_bucket_policy.state
 # above would fail with AccessDenied on refresh. Scoped to this bucket only,
-# and only to this account's deploy role — doesn't touch the shared module
-# or any other account's role.
+# and only to this account's deploy role.
 resource "aws_iam_role_policy" "terraform_deploy_state_bucket_policy_access" {
   name = "StateBucketPolicyAccess"
-  role = module.terraform_deploy_role.role_name
+  # Was module.terraform_deploy_role.role_name — same value either way. See
+  # moved.tf for the migration.
+  role = aws_iam_role.terraform_deploy.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -128,7 +129,10 @@ resource "aws_iam_role_policy" "terraform_deploy_state_bucket_policy_access" {
 
 resource "aws_iam_role_policy" "terraform_plan_lock_access" {
   name = "StateLockObjectAccess"
-  role = split("/", module.terraform_deploy_role.plan_role_arn)[1]
+  # Was split("/", module.terraform_deploy_role.plan_role_arn)[1] — same
+  # value either way, and simpler now that the role is defined directly
+  # here. See moved.tf for the migration.
+  role = aws_iam_role.terraform_plan.name
 
   policy = jsonencode({
     Version = "2012-10-17"
