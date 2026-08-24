@@ -111,8 +111,17 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
     resources = ["arn:aws:iam::${var.management_account_id}:oidc-provider/token.actions.githubusercontent.com"]
   }
 
-  # The two customer-managed policies this account creates — same ARNs as
-  # terraform-deploy-permissions.tf's ManageStandaloneIAMPolicies statement.
+  # The customer-managed policies this account creates — two of our own
+  # (same ARNs as terraform-deploy-permissions.tf's ManageStandaloneIAM
+  # Policies statement), plus TerraformPlanS3Policy, which the pinned
+  # github-oidc-roles module itself creates and attaches to TerraformPlan
+  # (modules/github-oidc-roles/main.tf's aws_iam_policy.terraform_plan_s3_role
+  # — scopes TerraformPlan's state-bucket S3 access to this account's own
+  # state_key_prefix). TerraformDeploy is the role that runs `apply` and
+  # therefore the one that has to create/manage it, so it needs to be listed
+  # here too — omitting it fails CreatePolicy with "no permissions boundary
+  # allows the iam:CreatePolicy action" (seen 2026-08-24, first apply after
+  # the module bump that added this resource).
   statement {
     sid    = "ManageKnownPolicies"
     effect = "Allow"
@@ -128,6 +137,7 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
     resources = [
       "arn:aws:iam::${var.management_account_id}:policy/TerraformOrgSSMPolicy",
       "arn:aws:iam::${var.management_account_id}:policy/SSMReadOnlyForMemberAccounts",
+      "arn:aws:iam::${var.management_account_id}:policy/TerraformPlanS3Policy",
     ]
   }
 
