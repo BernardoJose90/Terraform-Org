@@ -159,10 +159,11 @@ jobs:
 
       # First-rollout findings triaged: two accepted as deliberate (inline
       # #checkov:skip comments on the resources themselves, with reasons —
-      # platform/iam.tf, organization/ssm.tf), one actually fixed via a
-      # permissions boundary (terraform-deploy-boundary.tf) rather than
-      # skipped, since it was a real gap. soft_fail is off — this check now
-      # blocks future regressions instead of just reporting them.
+      # platform/terraform-org-role.tf, organization/ssm.tf), one actually
+      # fixed via a permissions boundary (terraform-deploy-boundary.tf)
+      # rather than skipped, since it was a real gap. soft_fail is off —
+      # this check now blocks future regressions instead of just reporting
+      # them.
       - name: Checkov Security Scan
         id: checkov
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
