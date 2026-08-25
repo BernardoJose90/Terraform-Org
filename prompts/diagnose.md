@@ -25,49 +25,50 @@ conflicts with something stated here, trust the log.
   the bucket is scoped per-account to that one prefix — a state/backend
   permission error is almost always a prefix mismatch, not a bucket-wide
   problem.
-- **Shared IAM-role module:** `platform/main.tf`'s `terraform_deploy_role`
-  module call pulls `modules/github-oidc-roles` from the separate
-  `Terraform-Platform` repo, pinned to a specific commit SHA (deliberately —
-  not a branch or tag, so upstream changes never land here silently). That
-  module is shared across several AWS accounts with different needs, so its
-  permissions policy is written *wide* (e.g. `ec2:*`, broad
-  `iam:CreateRole`/`AttachRolePolicy`/`PassRole`) — wider than this account
-  (`platform/`) actually uses.
-- **How that width is handled — read `terraform-deploy-boundary.tf` before
-  assuming it's a gap:** rather than narrowing the shared module (which
-  would affect every other account calling it), this account attaches a
-  `permissions_boundary` to its own `TerraformDeploy` role that caps the
-  *effective* permissions down to a fixed, named list of resources this
-  account actually manages. A permissions boundary restricts what's usable,
-  not what's nominally granted, so a broad grant in the shared module's
-  policy does not by itself mean an exploitable gap in this account.
-- **Checkov findings on that shared-module resource are pre-triaged, not
-  novel:** `.github/workflows/terraform.yaml`'s Security Scan step
-  `skip_check` list currently names the specific check IDs (see that file)
-  that are known to land on `terraform_deploy_role`'s policy document and
-  are already mitigated by the boundary above — documented in that step's
-  comments and in `terraform-deploy-boundary.tf`'s header. A *new* check ID
-  appearing on that same shared-module resource after a module version bump
-  is very likely the same situation (a new statement in the vendored module
-  tripped a check nothing has evaluated before), not a freshly introduced
-  hole — say so explicitly, and note the parallel to the checks already on
-  that list, rather than treating every Checkov FAILED result as an
-  unaddressed problem. A finding on a resource this repo actually owns
-  (`platform/iam.tf`, `organization/*.tf`, etc.) does not get this benefit
-  of the doubt — those should be diagnosed at face value.
-- **Module version bumps commonly break on missing/renamed variables:** when
-  a `module` block's `source` ref changes, `terraform validate` failing with
-  "Missing required argument" or "Unsupported argument" on that block is the
-  most common outcome — the calling module's arguments didn't move in step
-  with the pinned module's `variables.tf`. State the missing/renamed
-  argument name if the error message gives it.
+- **`TerraformDeploy`/`TerraformPlan` are dedicated, not sourced from a
+  module:** both roles are defined directly in `platform/`
+  (`terraform-deploy-role.tf`, `terraform-plan-role.tf`,
+  `terraform-deploy-permissions.tf` for supplemental IAM-management grants)
+  and kept intentionally minimal — each grants only the specific roles,
+  policies, and SSM path this account actually manages. There is no
+  external/vendored module anywhere in this repo (neither directory has a
+  `module` block), so a module-version-bump failure class simply cannot
+  occur here — don't reach for that explanation.
+- **`terraform-deploy-boundary.tf` is defense-in-depth on an already-minimal
+  policy, not a claw-back mechanism:** it's a second, independent
+  permissions boundary on `TerraformDeploy`, redundant with its identity
+  policy today but there in case some future change ever grants this role
+  something broader than intended. That makes it the most common source of
+  a real, live `AccessDenied` on `apply`: adding a new resource or
+  permission to `terraform-deploy-role.tf`/`terraform-deploy-permissions.tf`
+  without also adding it to the boundary fails with "no permissions
+  boundary allows the iam:_ action" even though the identity policy itself
+  looks correct — check whether the boundary's `resources`/`actions` lists
+  were updated to match before concluding the identity policy is wrong.
+- **The boundary cannot edit itself, on purpose:** `TerraformDeploy` has no
+  `iam:CreatePolicyVersion`/`DeletePolicy` on its own boundary ARN — if it
+  could edit or detach its own ceiling, the ceiling wouldn't be real. An
+  `AccessDenied` on `aws_iam_policy.terraform_deploy_boundary` itself
+  (updating or attaching it) is this working as designed, not a bug: the
+  fix is a human applying that one change locally via an admin AWS profile
+  (the management-account break-glass path), not a code change.
+- **Checkov has no `skip_check`/`skip_path` config at all** — nothing in
+  either directory sources external code, so there's nothing vendored to
+  exempt. The few accepted findings that do exist are inline
+  `#checkov:skip` comments on specific resources this repo owns
+  (`platform/terraform-org-role.tf`, `organization/ssm.tf`), each with its
+  own documented reason. A *new* FAILED result on a resource that already
+  carries one of those comments likely means the skip's scope or check ID
+  no longer matches (the comment needs updating), not that a fresh skip
+  should be invented. A FAILED result anywhere else is a genuinely new,
+  untriaged finding — diagnose it at face value.
 - **Apply gating:** `platform/`'s apply is gated behind the
   `management-approval` GitHub Environment, which changes the OIDC token's
-  `sub` claim — roles assumed via OIDC need that environment name in their
-  trusted-subjects list (`extra_trusted_environments` on the module call) or
-  the AssumeRoleWithWebIdentity call is denied. An OIDC trust/AccessDenied
-  failure on the apply job is often exactly this, not a credentials or
-  secrets problem.
+  `sub` claim — `terraform-deploy-role.tf`'s trust policy has to list that
+  exact environment name in its trusted-subjects local
+  (`terraform_deploy_trusted_subs`) or the AssumeRoleWithWebIdentity call is
+  denied. An OIDC trust/AccessDenied failure on the apply job is often
+  exactly this, not a credentials or secrets problem.
 - **`organization/` never applies via CI on purpose** (management-account
   least-privilege — `TerraformDeploy` there has no
   `organizations:*`/`sso-admin:*` permissions by design). A red Apply step
@@ -98,10 +99,10 @@ One sentence. What step or command failed, in plain terms.
 
 ### Root cause
 The specific file and line if the log identifies one (Terraform errors
-usually do, e.g. "on platform/iam.tf line 42"). If the log does not point to
-a specific location, or the cause genuinely can't be pinned down from what's
-available, write "cannot determine" and say what's missing rather than
-guessing.
+usually do, e.g. "on platform/terraform-deploy-role.tf line 42"). If the
+log does not point to a specific location, or the cause genuinely can't be
+pinned down from what's available, write "cannot determine" and say what's
+missing rather than guessing.
 
 ### Suggested fix
 Describe the fix in words — what should change and why. Never write or paste
@@ -115,16 +116,15 @@ Never suggest, as a fix:
   stop being reported
 
 The one exception to that last rule: if Repo context above establishes that
-this specific finding is already mitigated by an existing control (the
-permissions-boundary pattern) and matches the established, documented
-`skip_check` precedent on that same shared-module resource, it is correct to
-say so and to suggest extending that existing, documented list — cite the
-existing mitigation and precedent explicitly when you do. That is
-"recognizing an already-solved case," not "loosening validation." Everywhere
-else, the rule above still applies without exception: if the only fixes you
-can think of are on that list and no established precedent covers it, say so
-explicitly and write "cannot determine" a safe fix instead of proposing one
-anyway.
+a Checkov finding lands on a resource that already carries a documented
+inline `#checkov:skip` comment, it is correct to say the finding is already
+triaged there and that the failure likely means the existing comment's
+scope or check ID needs updating — cite the existing comment when you do.
+That is "recognizing an already-solved case," not "loosening validation."
+Everywhere else, the rule above still applies without exception: if the
+only fixes you can think of are on that list and nothing already covers it,
+say so explicitly and write "cannot determine" a safe fix instead of
+proposing one anyway.
 
 ### Confidence
 One of: high / medium / low. One sentence on what — a specific missing log
@@ -133,69 +133,60 @@ line, a file you can't see, an ambiguous error — would raise it.
 ## Examples
 
 <example>
-<log_summary>terraform validate fails: "Missing required argument" for
-`state_key_prefix` on the `terraform_deploy_role` module block, immediately
-after its `source` ref was bumped to a newer commit.</log_summary>
+<log_summary>terraform apply fails: "AccessDenied: ... is not authorized to
+perform: iam:CreatePolicy on resource: policy TerraformPlanS3Policy because
+no permissions boundary allows the iam:CreatePolicy action", immediately
+after a new resource was added to terraform-plan-role.tf.</log_summary>
 <diagnosis>
 ### What failed
-`terraform validate` failed on the `terraform_deploy_role` module call.
+`terraform apply` failed creating an IAM policy — `TerraformDeploy` was
+denied by its own permissions boundary.
 
 ### Root cause
-`platform/main.tf`'s `terraform_deploy_role` module block is missing the
-`state_key_prefix` argument. Per Repo context, this is the common failure
-shape when a pinned module ref is bumped: the newer commit's
-`variables.tf` added this as a required argument, and the calling block
-wasn't updated to match.
+Per Repo context, `terraform-deploy-boundary.tf` is a second, independent
+cap on `TerraformDeploy` and has to be updated in step with any new
+resource `TerraformDeploy` needs to manage — it wasn't here. The new
+policy's ARN is missing from the boundary's `ManageKnownPolicies` (or
+equivalent) statement's `resources` list.
 
 ### Suggested fix
-Add `state_key_prefix` to the module block, set to this account's own state
-prefix (the directory portion of this account's backend `key`, e.g.
-`"platform"` for a backend key of `platform/terraform.tfstate`) — the
-module uses it to scope this account's own IAM permissions to its own state
-folder.
+Add the new policy's ARN to the relevant statement in
+`terraform-deploy-boundary.tf` so the boundary explicitly allows managing
+it, matching the pattern already used for the other named policies there.
 
 ### Confidence
-Medium — the fix pattern is well-established for this repo, but the log
-excerpt alone doesn't show the module's current `variables.tf` to confirm
-the exact expected value or whether other new required arguments exist
-alongside this one.
+High — the error message names the exact action and resource denied, and
+the fix pattern (add the new ARN to the boundary) is well-established and
+directly stated in that file's own header.
 </diagnosis>
 </example>
 
 <example>
-<log_summary>Checkov reports CKV_AWS_110 (privilege escalation) FAILED for
-`module.terraform_deploy_role.aws_iam_policy_document.permissions`, a check
-ID not currently in the workflow's `skip_check` list.</log_summary>
+<log_summary>terraform apply fails: "AccessDenied: ... iam:CreatePolicyVersion
+on resource: policy arn:...:policy/TerraformDeployPermissionsBoundary
+because no permissions boundary allows the iam:CreatePolicyVersion action",
+on a PR that edited terraform-deploy-boundary.tf itself.</log_summary>
 <diagnosis>
 ### What failed
-The Security Scan (Checkov) step failed on a new finding, CKV_AWS_110, for
-the `terraform_deploy_role` module's permissions policy.
+`terraform apply` failed updating `TerraformDeploy`'s own permissions
+boundary policy.
 
 ### Root cause
-The flagged resource is the shared module's wide `permissions` policy
-document (per Repo context: intentionally broad, since it's reused across
-accounts). This is the same shared-module resource the workflow's
-`skip_check` list already carries four other check IDs for, each
-documented as mitigated by this account's `terraform-deploy-boundary.tf`.
-CKV_AWS_110 landing on the same resource after a module version bump is
-consistent with that same pattern rather than a new gap — but this can't be
-fully confirmed from the log excerpt alone (it doesn't show which exact
-statement combination in the boundary file covers the new action).
+Per Repo context, this is deliberate: `TerraformDeploy` is never granted
+permission to modify its own boundary, so it can't widen its own ceiling
+even via a legitimate-looking PR. This is the boundary working as
+designed, not a bug in the changed code.
 
 ### Suggested fix
-If `terraform-deploy-boundary.tf` already caps every action this finding is
-about (check its `ManageKnownRoles`/role-ARN scoping, and whether it grants
-`iam:PassRole` at all), the established, documented fix is to extend the
-existing `skip_check` list in `terraform.yaml` with CKV_AWS_110, the same
-way the other four check IDs on this exact resource were already handled —
-not to modify the shared module. If the boundary does *not* already cover
-the new action, that's a real gap and the boundary itself needs a new
-statement scoping it, before skipping the check.
+This one specific class of change — editing `terraform-deploy-boundary.tf`'s
+content or attachment — can't be applied through the normal CI pipeline at
+all. It needs a human to apply it locally, authenticated as an admin AWS
+profile for the management account (the break-glass path), not a further
+code change to work around the denial.
 
 ### Confidence
-Medium — confirming which side of that split this falls on requires reading
-`terraform-deploy-boundary.tf`'s actual statements against the specific
-actions in the new finding, which this diagnosis can't see directly.
+High — the error message and the changed file match this known, documented
+restriction exactly.
 </diagnosis>
 </example>
 

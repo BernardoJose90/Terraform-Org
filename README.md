@@ -216,7 +216,7 @@ Both root modules share the same S3 backend bucket but use separate keys, so the
 `.github/workflows/terraform.yaml` runs against **both** directories as a matrix (`organization`, `platform`):
 
 - **Validate** — `terraform fmt -check`, `terraform init -backend=false`, `terraform validate`, on every PR and push touching `**.tf`/`**.tfvars`/lockfiles.
-- **Security Scan** — Checkov, blocking (`soft_fail: false`), with SARIF results uploaded to the repo's Security tab. See [Known Issues](#known-issues--todos) for a stale entry in its `skip_check` list.
+- **Security Scan** — Checkov, blocking (`soft_fail: false`), with SARIF results uploaded to the repo's Security tab. No `skip_check`/`skip_path` config — neither directory sources anything external.
 - **Plan** — on pull requests, assumes `TerraformPlan`, plans both directories, and posts/updates a PR comment per directory with the plan output (flagging destructive changes with a `destructive-change` label).
 - **Apply** — **`platform/` only**, on push to `main`, gated behind the `management-approval` GitHub Environment (a human must approve). It downloads and applies the *exact* plan artifact reviewed on the merged PR rather than re-planning at merge time; a `workflow_dispatch` run falls back to a fresh plan+apply if no reviewed artifact is found. `organization/` has no apply job at all — see [Security Notes](#security-notes) for why.
 
@@ -248,12 +248,7 @@ Both root modules share the same S3 backend bucket but use separate keys, so the
 
 ## 🐛 Known Issues / TODOs
 
-- **`terraform.yaml`'s Security Scan `skip_check` list is stale.** It names
-  5 Checkov check IDs (`CKV_AWS_107`, `109`, `110`, `111`, `356`) that only
-  ever fired on `TerraformDeploy`'s permissions policy back when that role
-  was sourced from a shared module — that policy no longer exists
-  (`TerraformDeploy` is now a dedicated definition, `platform/terraform-
-  deploy-role.tf`). Safe to remove the whole list; not yet done.
+No open items at time of writing.
 
 ---
 

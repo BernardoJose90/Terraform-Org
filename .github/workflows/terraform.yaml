@@ -171,36 +171,11 @@ jobs:
         with:
           directory: ${{ matrix.dir }}
           output_format: cli,sarif
-          download_external_modules: true
-          # Vendored dependency code fetched fresh from Terraform-Platform's
-          # pinned commit every run — inline #checkov:skip comments here
-          # would be pointless (overwritten by the next download). Its
-          # findings (broad ec2:*/IAM permissions in the shared module) are
-          # the ones the permissions boundary actually mitigates; scanning
-          # source we don't own and can't annotate just adds unactionable
-          # noise on every run.
-          # Relative to `directory` above (platform/ or organization/), not
-          # the repo root — confirmed by testing: "platform/.external_modules"
-          # silently matched nothing and the vendored module kept scanning.
-          skip_path: ".external_modules"
-          # skip_path above stops the vendored file from being scanned
-          # standalone, but Checkov still evaluates it through the graph via
-          # the calling module block (module.terraform_deploy_role...),
-          # confirmed by testing locally — these 5 always land on that one
-          # shared-module resource (aws_iam_policy_document.permissions:
-          # ec2:*, unconstrained iam:CreateRole/AttachRolePolicy/PassRole).
-          # Already mitigated by terraform-deploy-boundary.tf, not just
-          # ignored — see that file's header for the real fix. Global, not
-          # per-resource (Checkov's CLI has no per-resource skip for vendored
-          # code we can't add inline comments to), but this repo has exactly
-          # one resource that could ever trigger these five, so the blast
-          # radius of the skip matches the blast radius of the finding.
-          # CKV_AWS_110 (privilege escalation) joined the other 4 after the
-          # module was bumped to pull in a new PassRole statement
-          # (PassFlowLogDeliveryRole, for VPC flow-log support this account
-          # doesn't use) — same shared-policy resource, same boundary
-          # mitigation, just a new action combination for Checkov to notice.
-          skip_check: "CKV_AWS_107,CKV_AWS_109,CKV_AWS_110,CKV_AWS_111,CKV_AWS_356"
+          # No download_external_modules/skip_path/skip_check here on
+          # purpose: neither organization/ nor platform/ has a `module`
+          # block anywhere (platform/'s only one, terraform_deploy_role,
+          # was replaced 2026-08-24 by a dedicated role definition owned
+          # directly in this repo) — nothing external to fetch or skip.
           quiet: false
           soft_fail: false
 

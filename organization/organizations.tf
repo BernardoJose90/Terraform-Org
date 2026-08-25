@@ -2,13 +2,7 @@
 # AWS Organizations OUs, Accounts, and Delegated Administrators
 #########################################################################
 
-# This resource is used to move the AWS Organization from the management account to a new account.
-moved {
-  from = aws_organizations_organization.this
-  to   = aws_organizations_organization.aws_Org
-}
-
-# This module creates the AWS Organization, Organizational Units, Member Accounts, and Delegated Administrators for the organization. 
+# This module creates the AWS Organization, Organizational Units, Member Accounts, and Delegated Administrators for the organization.
 # It also enables the necessary service principals for AWS services that require access to the organization.
 resource "aws_organizations_organization" "aws_Org" {
   feature_set = "ALL"

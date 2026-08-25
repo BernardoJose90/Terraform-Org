@@ -94,8 +94,6 @@ resource "aws_s3_bucket_policy" "state" {
 # and only to this account's deploy role.
 resource "aws_iam_role_policy" "terraform_deploy_state_bucket_policy_access" {
   name = "StateBucketPolicyAccess"
-  # Was module.terraform_deploy_role.role_name — same value either way. See
-  # moved.tf for the migration.
   role = aws_iam_role.terraform_deploy.name
 
   policy = jsonencode({
@@ -129,9 +127,6 @@ resource "aws_iam_role_policy" "terraform_deploy_state_bucket_policy_access" {
 
 resource "aws_iam_role_policy" "terraform_plan_lock_access" {
   name = "StateLockObjectAccess"
-  # Was split("/", module.terraform_deploy_role.plan_role_arn)[1] — same
-  # value either way, and simpler now that the role is defined directly
-  # here. See moved.tf for the migration.
   role = aws_iam_role.terraform_plan.name
 
   policy = jsonencode({
