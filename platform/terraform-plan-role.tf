@@ -52,7 +52,7 @@ resource "aws_iam_role" "terraform_plan" {
   max_session_duration = 3600
 
   tags = {
-    ManagedBy   = "github-actions" # kept as-is from the original module for parity, not fixing here
+    ManagedBy   = "github-actions" # inconsistent with terraform-deploy-role.tf's "Terraform" — a tag value, not worth a state-touching fix
     Repo        = "${var.github_org}/${var.github_repo}"
     AccountName = var.account_name
   }

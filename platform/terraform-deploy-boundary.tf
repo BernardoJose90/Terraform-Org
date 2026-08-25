@@ -1,55 +1,35 @@
 ###############################################################################
 # TerraformDeploy's permissions boundary
 #
-# terraform_deploy_role's shared `permissions` policy (pinned module) is
-# written wide — ec2:*, VPN/CloudWatch logging, and unconstrained
-# iam:CreateRole/AttachRolePolicy/DeleteRole on Resource "*" — because it's
-# reused by accounts (network, security, ...) that actually run that kind of
-# infrastructure. This account doesn't: platform/ only ever manages a fixed,
-# known set of IAM roles/policies, the state bucket, and SSM parameters under
-# /organizations/*. None of it touches EC2, VPC, VPN, or CloudWatch, and it
-# never creates or modifies an IAM role/policy outside the fixed list below.
+# This account's TerraformDeploy role already has an intentionally minimal
+# identity policy (terraform-deploy-role.tf + terraform-deploy-permissions.tf)
+# — scoped to exactly the fixed set of IAM roles/policies, the state bucket,
+# and SSM parameters under /organizations/* this account actually manages.
+# This boundary is a second, independent layer on top of that: AWS evaluates
+# the intersection of a role's identity policy and its boundary, so even if
+# some future change here (a new resource, a policy attached directly via
+# the console) ever granted this role something broader, this boundary caps
+# what's actually usable back down to this same fixed list.
 #
-# Surfaced by Checkov (CKV_AWS_61/107/109/110/111/356) — findings were real: the
-# shared policy's grant is broader than this account uses, and the
-# unconstrained iam:CreateRole/AttachRolePolicy is a genuine
-# privilege-escalation shape (create or modify an arbitrary role, attach
-# AdministratorAccess to it). AWS's own guidance backs both the diagnosis and
-# the fix:
+# Originally added to close a real privilege-escalation shape — unconstrained
+# iam:CreateRole/AttachRolePolicy/PassRole — inherited from a shared,
+# multi-account IAM-role module this account used to source
+# TerraformDeploy/TerraformPlan from. That module is gone now (replaced by
+# the dedicated role definition above), so the specific finding that
+# originally motivated this file no longer fires — kept anyway as
+# defense-in-depth, per AWS's own guidance:
 #   - Well-Architected SEC03-BP05 lists "running workloads in your
-#     [management/organizational admin] account" as a common anti-pattern —
-#     ec2:*/VPN/logging has no business being usable here regardless of
-#     whether it's ever actually called.
+#     [management/organizational admin] account" as a common anti-pattern.
 #   - IAM User Guide, "Permissions boundaries for IAM entities" — the
 #     documented mechanism for capping one specific identity's *effective*
-#     permissions below what a shared/broader identity policy grants, without
-#     narrowing that policy for every other caller.
-#
-# A permissions boundary caps what's USABLE, not what's GRANTED — the shared
-# policy still technically grants ec2:*, but TerraformDeploy can't actually
-# use it, because AWS evaluates the intersection of the identity policy and
-# this boundary. Every other account calling the same module is completely
-# unaffected — permissions_boundary_arn defaults to null and only this
-# account passes a value (see main.tf).
-#
-# CKV_AWS_110 specifically (privilege escalation via CreateRole +
-# AttachRolePolicy/PutRolePolicy + PassRole together) is closed the same way:
-# ManageKnownRoles below scopes CreateRole/AttachRolePolicy/PutRolePolicy to
-# the 5 named role ARNs only, and this boundary grants no iam:PassRole at
-# all — so even though the shared module's PassFlowLogDeliveryRole statement
-# grants iam:PassRole on Resource "*", TerraformDeploy in this account can't
-# use it. That module statement is new as of the pinned commit this account
-# bumped to (adds VPC flow-log support other accounts use); this account
-# still doesn't touch flow logs, so nothing here needed to change to stay
-# closed — it already was.
+#     permissions independent of whatever its identity policy grants.
 #
 # Deliberately excluded from what TerraformDeploy itself is allowed to touch:
 # this boundary's own policy (content or attachment). If TerraformDeploy
 # could edit or detach its own boundary, the boundary wouldn't be a real
-# ceiling — a buggy or compromised CI run could just remove it and fall back
-# to the shared policy's full width. Changing this file therefore still
-# requires the management break-glass path (see README / CLAUDE session
-# notes on how the OIDC and this fix were both applied), same as
+# ceiling — a buggy or compromised CI run could just remove it. Changing
+# this file therefore requires the management break-glass path (an admin
+# AWS profile, applied locally — see README's Usage section), same as
 # organization/ already does for SCPs.
 ###############################################################################
 
@@ -73,10 +53,11 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
   }
 
   # The fixed set of IAM roles this account's Terraform actually manages —
-  # see iam.tf, discovery-role.tf, main.tf (this module's own two roles).
-  # CreateRole/AttachRolePolicy scoped to exactly these five is what closes
-  # the privilege-escalation gap: TerraformDeploy can manage these known
-  # roles but can't create or modify any role outside this list.
+  # see terraform-org-role.tf, ssm-read-only-role.tf, discovery-role.tf, and
+  # terraform-deploy-role.tf/terraform-plan-role.tf (this account's own two
+  # roles). CreateRole/AttachRolePolicy scoped to exactly these five is what
+  # closes the privilege-escalation gap: TerraformDeploy can manage these
+  # known roles but can't create or modify any role outside this list.
   statement {
     sid    = "ManageKnownRoles"
     effect = "Allow"
@@ -113,15 +94,12 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
 
   # The customer-managed policies this account creates — two of our own
   # (same ARNs as terraform-deploy-permissions.tf's ManageStandaloneIAM
-  # Policies statement), plus TerraformPlanS3Policy, which the pinned
-  # github-oidc-roles module itself creates and attaches to TerraformPlan
-  # (modules/github-oidc-roles/main.tf's aws_iam_policy.terraform_plan_s3_role
+  # Policies statement), plus TerraformPlanS3Policy (terraform-plan-role.tf)
   # — scopes TerraformPlan's state-bucket S3 access to this account's own
-  # state_key_prefix). TerraformDeploy is the role that runs `apply` and
-  # therefore the one that has to create/manage it, so it needs to be listed
-  # here too — omitting it fails CreatePolicy with "no permissions boundary
-  # allows the iam:CreatePolicy action" (seen 2026-08-24, first apply after
-  # the module bump that added this resource)
+  # state_key_prefix. TerraformDeploy is the role that runs `apply`, so it's
+  # the one that has to create/manage this too, even though it belongs to a
+  # different role — omitting it here fails CreatePolicy with "no
+  # permissions boundary allows the iam:CreatePolicy action."
   statement {
     sid    = "ManageKnownPolicies"
     effect = "Allow"
@@ -141,8 +119,8 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
     ]
   }
 
-  # Matches the module's own SSMParameterStore statement scope exactly —
-  # this account's automation only ever touches /organizations/* parameters.
+  # This account's automation only ever touches /organizations/* parameters
+  # in the management account.
   statement {
     sid    = "SSMOrganizationsParameters"
     effect = "Allow"
@@ -173,8 +151,7 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
     ]
     resources = [
       # Literal, matching state-bucket-policy.tf's own convention — this
-      # repo has no state_bucket_name variable (that's module-internal to
-      # terraform_deploy_role, defaulted there, not exposed here).
+      # repo has no state_bucket_name variable at all.
       "arn:aws:s3:::james-terraform-state-2026",
       "arn:aws:s3:::james-terraform-state-2026/*",
     ]

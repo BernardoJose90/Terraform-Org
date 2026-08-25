@@ -1,21 +1,16 @@
 ###############################################################################
-# TerraformDeploy's IAM management gap.
+# TerraformDeploy's supplemental IAM-management permissions.
 #
-# Surfaced 2026-08-17 by the FIRST real run of terraform-apply against this
-# account — the old workflow's `needs: terraform-plan` on the apply job made
-# apply unreachable (push and pull_request triggers never coincide), so it
-# had literally never executed. This gap predates the organization/platform
-# split and was never caught. At the time, TerraformDeploy still came from
-# Terraform-Platform's shared github-oidc-roles module (since replaced,
-# 2026-08-24, by terraform-deploy-role.tf — see that file's header); its
-# built-in `permissions` policy was written for EC2/instance-profile roles
-# (ManageInstanceRoles:
-# CreateRole/GetRole/DeleteRole/TagRole, AttachRolePolicy/DetachRolePolicy
-# for MANAGED policy attachments) — it never covered standalone
-# customer-managed policies (aws_iam_policy), inline role policies
-# (aws_iam_role_policy), trust-policy updates (UpdateAssumeRolePolicy), or
-# reading the GitHub OIDC provider (GetOpenIDConnectProvider). Exactly what
-# iam.tf, discovery-role.tf, and the inline policies below need.
+# Grants what terraform-deploy-role.tf's own policy (state-bucket access
+# only) doesn't: managing standalone customer-managed policies
+# (aws_iam_policy), inline role policies (aws_iam_role_policy), trust-policy
+# updates (UpdateAssumeRolePolicy), and reading the GitHub OIDC provider
+# (GetOpenIDConnectProvider) — exactly what discovery-role.tf,
+# terraform-org-role.tf, ssm-read-only-role.tf, and this role's own trust
+# policy need. Kept as its own resource rather than merged into
+# terraform-deploy-role.tf so future changes here never risk state churn on
+# the role resource itself — that one's `prevent_destroy`-protected and is
+# the identity CI's own apply run assumes to do the applying.
 #
 # Scoped to the specific resources TerraformDeploy actually manages here —
 # not iam:*, not Resource = "*" — same narrow-grant pattern as
@@ -25,9 +20,6 @@
 
 resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
   name = "IAMManagementAccess"
-  # Was module.terraform_deploy_role.role_name — same value ("TerraformDeploy")
-  # either way, so this is a no-op change now that the role is defined
-  # directly in terraform-deploy-role.tf. See moved.tf for the migration.
   role = aws_iam_role.terraform_deploy.name
 
   policy = jsonencode({

@@ -8,9 +8,9 @@
 # delegation option exists. See organizations.tf
 # (aws_organizations_delegated_administrator.identity_center).
 #
-# What's left here is still load-bearing: iam.tf's ssm_read_only_trust and
-# state-bucket-policy.tf's account-prefix mapping both consume
-# local.account_ids_sso.
+# What's left here is still load-bearing: ssm-read-only-role.tf's
+# ssm_read_only_trust and state-bucket-policy.tf's account-prefix mapping
+# both consume local.account_ids_sso.
 ###############################################################################
 
 locals {
