@@ -1,23 +1,30 @@
 ###############################################################################
-# TerraformDeploy — dedicated to this account, not the shared github-oidc-
-# roles module.
+# TerraformDeploy — this account's own, dedicated role, and everything it's
+# allowed to do.
 #
-# Previously this role came from Terraform-Platform's shared github-oidc-
-# roles module, which is written wide (ec2:*, unconstrained
-# iam:CreateRole/AttachRolePolicy, VPN/CloudWatch logging, iam:PassRole) for
-# accounts like network/security that actually run that infrastructure.
-# platform/ never used any of that — terraform-deploy-boundary.tf existed
-# specifically to claw the shared grant back down to what this account
-# actually needs, and every module version bump risked reopening that gap
-# (three separate CI breakages from one such bump, 2026-08-24). Defined
-# directly here instead: this account's identity policy only ever grants
-# what it actually uses, so there's nothing left for an upstream change
-# meant for other accounts to accidentally widen.
+# This used to come from a module shared with several other AWS accounts
+# (network, security, and others that manage real infrastructure like VPCs
+# and VPNs). That module granted a lot of permissions this account never
+# used, because it had to cover everyone. Every time that shared module
+# changed, this account inherited the risk of that change too, even for
+# features it would never touch (three separate CI breakages from one such
+# update). So this role is now defined directly here instead — it only
+# ever grants exactly what this account actually uses, meaning nothing an
+# unrelated account's changes could accidentally widen.
 #
-# terraform-deploy-boundary.tf is kept, unchanged, as a second layer of
-# defense — even though this role's own policy is already minimal now, the
-# boundary still protects against some future PR attaching an additional,
-# broader policy to this role directly.
+# terraform-deploy-boundary.tf is still kept as a backup limit, even though
+# this role's own permissions are already narrow — see that file for why.
+#
+# Permissions are split into two grants below: state-bucket access
+# (this role's one truly "core" permission), and everything else it needs
+# for IAM management — creating/updating standalone IAM policies, editing
+# other roles' inline policies, updating trust policies, and reading the
+# GitHub OIDC provider. The latter is what discovery-role.tf,
+# terraform-org-role.tf, ssm-read-only-role.tf, and this role's own trust
+# policy all depend on. Every grant is scoped to specific, named
+# resources — never `iam:*` or a wildcard `Resource = "*"`. Same pattern
+# used in state-bucket-policy.tf's terraform_deploy_state_bucket_policy_access
+# and terraform_plan_lock_access.
 ###############################################################################
 
 locals {
@@ -94,11 +101,7 @@ resource "aws_iam_role" "terraform_deploy" {
 
 # The one permission this account still needed from the old shared
 # module's wide policy: read/write access to its own folder in the shared
-# state bucket. Everything else this role needs (managing the 5 known
-# roles, the 3 known customer-managed policies, /organizations/* SSM
-# parameters, reading its own boundary) is already granted separately by
-# terraform-deploy-permissions.tf — untouched by this migration, still
-# attached to this same role by name.
+# state bucket.
 resource "aws_iam_role_policy" "terraform_deploy_state_access" {
   name = "TerraformDeployStateAccess"
   role = aws_iam_role.terraform_deploy.id
@@ -126,6 +129,92 @@ resource "aws_iam_role_policy" "terraform_deploy_state_access" {
             "s3:prefix" = ["platform/*"]
           }
         }
+      }
+    ]
+  })
+}
+
+# Everything else this role needs: managing the 5 known roles, the 3 known
+# customer-managed policies, /organizations/* SSM parameters, and reading
+# its own boundary. See the file header for the full explanation.
+resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
+  name = "IAMManagementAccess"
+  role = aws_iam_role.terraform_deploy.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadGitHubOIDCProvider"
+        Effect   = "Allow"
+        Action   = ["iam:GetOpenIDConnectProvider"]
+        Resource = "arn:aws:iam::145678291484:oidc-provider/token.actions.githubusercontent.com"
+      },
+      {
+        Sid    = "ManageStandaloneIAMPolicies"
+        Effect = "Allow"
+        Action = [
+          "iam:CreatePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListPolicyVersions",
+          "iam:CreatePolicyVersion",
+          "iam:DeletePolicyVersion",
+          "iam:DeletePolicy"
+        ]
+        Resource = [
+          "arn:aws:iam::145678291484:policy/TerraformOrgSSMPolicy",
+          "arn:aws:iam::145678291484:policy/SSMReadOnlyForMemberAccounts"
+        ]
+      },
+      {
+        Sid    = "ManageInlineRolePolicies"
+        Effect = "Allow"
+        Action = [
+          "iam:PutRolePolicy",
+          "iam:GetRolePolicy",
+          "iam:DeleteRolePolicy"
+        ]
+        Resource = [
+          "arn:aws:iam::145678291484:role/GitHubActionsAccountDiscovery",
+          "arn:aws:iam::145678291484:role/TerraformDeploy",
+          "arn:aws:iam::145678291484:role/TerraformPlan"
+        ]
+      },
+      {
+        Sid    = "UpdateTrustPolicies"
+        Effect = "Allow"
+        Action = ["iam:UpdateAssumeRolePolicy"]
+        Resource = [
+          "arn:aws:iam::145678291484:role/TerraformOrgRole",
+          "arn:aws:iam::145678291484:role/SSMReadOnly",
+          "arn:aws:iam::145678291484:role/GitHubActionsAccountDiscovery",
+          "arn:aws:iam::145678291484:role/TerraformDeploy",
+          "arn:aws:iam::145678291484:role/TerraformPlan"
+        ]
+      },
+      {
+        # Remember, a permissions boundary by itself doesn't grant
+        # anything — AWS only allows an action if BOTH a role's normal
+        # permissions AND its boundary agree to it. So TerraformDeploy
+        # needs its own explicit permission to read the boundary, separate
+        # from the boundary allowing itself to be read (that's
+        # terraform-deploy-boundary.tf's matching ReadOwnBoundaryPolicy
+        # statement) — without both sides granting it, TerraformDeploy
+        # can't even check its own boundary is correct (confirmed by
+        # actually testing this as the role — it failed with AccessDenied
+        # without this permission). Deliberately read-only: no permission
+        # to create a new version or delete this policy, so TerraformDeploy
+        # still can't widen or remove its own limit — see
+        # terraform-deploy-boundary.tf's header for why that matters.
+        Sid    = "ReadOwnPermissionsBoundary"
+        Effect = "Allow"
+        Action = [
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListPolicyVersions"
+        ]
+        Resource = "arn:aws:iam::145678291484:policy/TerraformDeployPermissionsBoundary"
       }
     ]
   })

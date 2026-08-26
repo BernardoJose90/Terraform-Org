@@ -1,5 +1,6 @@
 ###############################################################################
-# SSM Parameter Store to Store account IDs and tiers for discovery by Github Action and Terraform-Platform repos
+# Publishes account IDs and tiers to SSM Parameter Store, so GitHub Actions
+# and the Terraform-Platform repo can look them up instead of hardcoding.
 ###############################################################################
 
 resource "aws_ssm_parameter" "account_ids" {
@@ -28,9 +29,10 @@ resource "aws_ssm_parameter" "account_ids" {
   }
 }
 
-####################################################################################################
-# SSm parameters to store account tiers for discovery by Github Action and Terraform-Platform repos 
-####################################################################################################
+###############################################################################
+# Same idea, for each account's approval tier (whether its applies need a
+# human to approve, or can run automatically).
+###############################################################################
 
 locals {
   account_tiers = {

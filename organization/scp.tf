@@ -1,5 +1,7 @@
 ###############################################################################
-# Service control policie(SCP) to set oraganisation wide Governace restrictions
+# A Service Control Policy (SCP) — an org-wide guardrail that blocks certain
+# actions no matter what permissions an individual account or user has.
+# This one blocks doing anything outside the allowed AWS regions.
 ###############################################################################
 
 data "aws_iam_policy_document" "region_restriction" {
@@ -14,6 +16,12 @@ data "aws_iam_policy_document" "region_restriction" {
       values   = var.allowed_regions
     }
 
+    # Everything below is exempt from the region block — these are global
+    # services that either don't run in any specific region at all (IAM,
+    # Organizations, Route 53, CloudFront...) or need to work everywhere
+    # regardless (billing, support). Blocking them "outside the allowed
+    # region" would just break them entirely, since they were never tied
+    # to a region to begin with.
     not_actions = [
       "iam:*",
       "sts:*",

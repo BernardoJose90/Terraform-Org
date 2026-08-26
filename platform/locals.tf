@@ -1,16 +1,17 @@
 ###############################################################################
 # Shared account-ID lookups
 #
-# IAM Identity Center resources used to live in this file (sso.tf) but moved
-# to member-accounts/security/sso.tf (Terraform-Platform repo) — security is
-# now the delegated admin for sso.amazonaws.com, per AWS's own guidance to
-# keep automation permissions out of the management account where a
-# delegation option exists. See organizations.tf
-# (aws_organizations_delegated_administrator.identity_center).
+# This file used to also manage IAM Identity Center (SSO) resources, but
+# those moved to member-accounts/security/sso.tf in the Terraform-Platform
+# repo — the `security` account now handles SSO administration instead of
+# the management account, following AWS's advice to keep the management
+# account's own permissions as minimal as possible. See organizations.tf's
+# aws_organizations_delegated_administrator.identity_center for where that
+# handoff is set up.
 #
-# What's left here is still load-bearing: ssm-read-only-role.tf's
+# What's left here is still needed: ssm-read-only-role.tf's
 # ssm_read_only_trust and state-bucket-policy.tf's account-prefix mapping
-# both consume local.account_ids_sso.
+# both use local.account_ids_sso.
 ###############################################################################
 
 locals {

@@ -27,10 +27,9 @@ conflicts with something stated here, trust the log.
   problem.
 - **`TerraformDeploy`/`TerraformPlan` are dedicated, not sourced from a
   module:** both roles are defined directly in `platform/`
-  (`terraform-deploy-role.tf`, `terraform-plan-role.tf`,
-  `terraform-deploy-permissions.tf` for supplemental IAM-management grants)
-  and kept intentionally minimal — each grants only the specific roles,
-  policies, and SSM path this account actually manages. There is no
+  (`terraform-deploy-role.tf`, `terraform-plan-role.tf`) and kept
+  intentionally minimal — each grants only the specific roles, policies,
+  and SSM path this account actually manages. There is no
   external/vendored module anywhere in this repo (neither directory has a
   `module` block), so a module-version-bump failure class simply cannot
   occur here — don't reach for that explanation.
@@ -40,11 +39,11 @@ conflicts with something stated here, trust the log.
   policy today but there in case some future change ever grants this role
   something broader than intended. That makes it the most common source of
   a real, live `AccessDenied` on `apply`: adding a new resource or
-  permission to `terraform-deploy-role.tf`/`terraform-deploy-permissions.tf`
-  without also adding it to the boundary fails with "no permissions
-  boundary allows the iam:_ action" even though the identity policy itself
-  looks correct — check whether the boundary's `resources`/`actions` lists
-  were updated to match before concluding the identity policy is wrong.
+  permission to `terraform-deploy-role.tf` without also adding it to the
+  boundary fails with "no permissions boundary allows the iam:_ action"
+  even though the identity policy itself looks correct — check whether the
+  boundary's `resources`/`actions` lists were updated to match before
+  concluding the identity policy is wrong.
 - **The boundary cannot edit itself, on purpose:** `TerraformDeploy` has no
   `iam:CreatePolicyVersion`/`DeletePolicy` on its own boundary ARN — if it
   could edit or detach its own ceiling, the ceiling wouldn't be real. An

@@ -1,7 +1,7 @@
 ###############################################################################
-# Cross-account SSM read access for member accounts (Option A pattern)
-# Lets each member account's Terraform read /organizations/* parameters
-# without hardcoding AWS CLI profiles.
+# Lets each member account's own Terraform read /organizations/* parameters
+# from SSM in the management account, without needing a hardcoded AWS CLI
+# profile — a member account assumes this role instead.
 ###############################################################################
 
 data "aws_iam_policy_document" "ssm_read_only" {
@@ -19,9 +19,11 @@ resource "aws_iam_policy" "ssm_read_only" {
 }
 
 data "aws_iam_policy_document" "ssm_read_only_trust" {
-  # Trust every member account (by account root). Whether a specific
-  # role/user inside that account can actually assume this role still
-  # depends on THAT account granting sts:AssumeRole on this ARN — see Step 2.
+  # Trusts every member account (by account root) to try assuming this
+  # role. Trusting them here isn't enough on its own, though — each member
+  # account also has to explicitly grant its own roles permission to
+  # assume this specific ARN before anything in that account can actually
+  # use it.
   dynamic "statement" {
     for_each = local.account_ids_sso
     content {
