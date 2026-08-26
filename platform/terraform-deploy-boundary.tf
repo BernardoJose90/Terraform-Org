@@ -93,6 +93,33 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
     resources = ["arn:aws:iam::${var.management_account_id}:oidc-provider/token.actions.githubusercontent.com"]
   }
 
+  # The one IAM group this account manages — see breakglass-user.tf.
+  # Matches terraform-deploy-role.tf's ManageBreakGlassGroup statement.
+  statement {
+    sid    = "ManageBreakGlassGroup"
+    effect = "Allow"
+    actions = [
+      "iam:CreateGroup",
+      "iam:GetGroup",
+      "iam:DeleteGroup",
+      "iam:AddUserToGroup",
+      "iam:RemoveUserFromGroup",
+      "iam:PutGroupPolicy",
+      "iam:GetGroupPolicy",
+      "iam:DeleteGroupPolicy",
+    ]
+    resources = ["arn:aws:iam::${var.management_account_id}:group/BreakGlassAdmins"]
+  }
+
+  # One-time cleanup permission — see terraform-deploy-role.tf's matching
+  # CleanUpOldBreakGlassUserPolicy statement for why this exists.
+  statement {
+    sid       = "CleanUpOldBreakGlassUserPolicy"
+    effect    = "Allow"
+    actions   = ["iam:DeleteUserPolicy"]
+    resources = ["arn:aws:iam::${var.management_account_id}:user/BreakGlassAdmin"]
+  }
+
   # The three IAM policies this account creates: two of our own (same as
   # terraform-deploy-role.tf's ManageStandaloneIAMPolicies list), plus
   # TerraformPlanS3Policy —
