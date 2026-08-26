@@ -23,11 +23,11 @@ variable "github_org" {
 }
 
 variable "github_repo" {
-  description = "GitHub repository name for GitHub Actions. Used by the TerraformDeploy/TerraformPlan trust policies (terraform_deploy_role module) — those roles are assumed by THIS repo's own CI, so this must be this repo's name."
+  description = "GitHub repository name for GitHub Actions. Used by TerraformDeploy/TerraformPlan's trust policies (terraform-deploy-role.tf, terraform-plan-role.tf) — those roles are assumed by THIS repo's own CI, so this must be this repo's name."
   type        = string
 }
 
 variable "discovery_github_repo" {
-  description = "GitHub repository name whose Actions runs are trusted to assume the github_discovery role (discovery-role.tf). Deliberately separate from github_repo: github_discovery is assumed by Terraform-Platform's CI (account discovery from SSM), not this repo's — sharing one variable between the two meant fixing one repo's trust silently broke the other's. See member-accounts/*/README or Terraform-Platform's workflows for where DISCOVERY_ROLE_ARN is consumed."
+  description = "GitHub repository name whose Actions runs are allowed to assume the github_discovery role (discovery-role.tf). Kept as its own variable, separate from github_repo, on purpose: github_discovery is used by Terraform-Platform's CI (to look up account IDs) — a different repo than the one this config runs in. Sharing one variable between both used to mean fixing one repo's access could silently break the other's."
   type        = string
 }

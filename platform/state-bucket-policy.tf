@@ -3,20 +3,23 @@
 #
 # james-terraform-state-2026 was created by hand (AWS CLI), not Terraform —
 # there is no aws_s3_bucket resource for it anywhere in this repo or in
-# Terraform-Platform. We only bring its bucket policy under management here,
-# via a data source against the existing bucket, so this doesn't try to
-# adopt/import the bucket itself.
+# Terraform-Platform. We only manage its *policy* here, using a data source
+# that points at the existing bucket — we never try to adopt or import the
+# bucket itself into Terraform.
 #
-# Each member account is scoped to its own prefix only (object actions via
-# resource ARN, ListBucket via an s3:prefix condition since it's a
-# bucket-level action and can't be scoped by appending a path to the ARN).
-# Principals are account roots (arn:...:root) — trusts anything in that
-# account with sufficient IAM permissions, not just specific roles.
+# Each member account can only touch its own folder in the bucket.
+# Reading/writing individual files is limited by putting that folder's path
+# directly in the resource ARN. Listing what's in the bucket works
+# differently — it's a whole-bucket action, so it can't be limited by an
+# ARN path — that one's restricted with an s3:prefix condition instead. The
+# trust is by account root, not by one specific role, meaning anything in
+# that account with enough IAM permissions can use this, not just one named
+# role.
 #
-# Account IDs are read from SSM (local.account_ids_sso, sso.tf) instead of
-# hardcoded, so a 7th "normal" account (same name as its state-key prefix)
-# only needs one new line in local.sso_account_names — see
-# state_bucket_prefix_overrides below for the one existing exception.
+# Account IDs come from SSM (local.account_ids_sso) instead of being
+# hardcoded, so adding a normal 7th account only needs one new line in
+# local.sso_account_names — see state_bucket_prefix_overrides below for the
+# one case where an account's name doesn't match its state-key prefix.
 ###############################################################################
 
 locals {

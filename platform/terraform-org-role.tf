@@ -1,5 +1,6 @@
 ###############################################################################
-# IAM Resources Role and policy for Terraform-Org to write to SSM
+# The IAM role and policy this repo's own Terraform (organization/) uses to
+# write account IDs to SSM Parameter Store.
 ###############################################################################
 
 resource "aws_iam_policy" "terraform_org_ssm" {
@@ -22,10 +23,9 @@ resource "aws_iam_policy" "terraform_org_ssm" {
 }
 
 resource "aws_iam_role" "terraform_org" {
-  # checkov:skip=CKV_AWS_61:Deliberate — trusts the management account root,
-  # same pattern already used for the state bucket policy (see
-  # state-bucket-policy-scoping notes). Single fully-owned account, not
-  # multi-tenant, so scoping to specific role ARNs buys nothing here.
+  # checkov:skip=CKV_AWS_61: This is intentional, not an oversight. The
+  # trust policy below lets anything in the management account assume this
+  # role, instead of naming specific roles one by one.
   name = "TerraformOrgRole"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
