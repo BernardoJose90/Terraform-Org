@@ -194,6 +194,32 @@ resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
         ]
       },
       {
+        Sid    = "ManageBreakGlassGroup"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateGroup",
+          "iam:GetGroup",
+          "iam:DeleteGroup",
+          "iam:AddUserToGroup",
+          "iam:RemoveUserFromGroup",
+          "iam:PutGroupPolicy",
+          "iam:GetGroupPolicy",
+          "iam:DeleteGroupPolicy"
+        ]
+        Resource = "arn:aws:iam::145678291484:group/BreakGlassAdmins"
+      },
+      {
+        # One-time: breakglass-user.tf originally attached this policy
+        # directly to the user; it's now attached to the group above
+        # instead (see that file's header — CKV_AWS_40), so Terraform has
+        # to delete the old user-attached copy. Nothing else in this
+        # account ever needs to touch a user-level inline policy.
+        Sid      = "CleanUpOldBreakGlassUserPolicy"
+        Effect   = "Allow"
+        Action   = ["iam:DeleteUserPolicy"]
+        Resource = "arn:aws:iam::145678291484:user/BreakGlassAdmin"
+      },
+      {
         # Remember, a permissions boundary by itself doesn't grant
         # anything — AWS only allows an action if BOTH a role's normal
         # permissions AND its boundary agree to it. So TerraformDeploy
