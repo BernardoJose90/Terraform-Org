@@ -28,7 +28,14 @@
 # <code>`. That's what this user exists for, and ALL it exists for — it
 # should never be used for day-to-day work. Day-to-day access stays on SSO
 # (per-account profiles, "Groups over Users" — see Terraform-Platform's
-# README), completely unchanged by this.
+# README), completely unchanged by this. Checkov flags a standalone IAM
+# user as a rule of thumb against exactly that kind of day-to-day misuse —
+# skipped below, since that's not what this one is for.
+#
+# The assume-role policy itself is attached to a group this user belongs
+# to, not to the user directly — same permissions, but structured so nothing
+# here is a policy-on-a-user, in case a second trusted admin ever needs the
+# same break-glass access later.
 #
 # WHAT TERRAFORM DELIBERATELY DOES NOT MANAGE HERE:
 # - The MFA device itself. Enabling one requires providing two consecutive
@@ -49,6 +56,14 @@
 ###############################################################################
 
 resource "aws_iam_user" "breakglass" {
+  # checkov:skip=CKV_AWS_273: Deliberate. This check assumes any standalone
+  # IAM user is a substitute for SSO day-to-day access, which this isn't —
+  # see the file header. IAM Identity Center sessions cannot satisfy the
+  # aws:MultiFactorAuthPresent condition this account's break-glass trust
+  # policies require (confirmed AWS limitation, source linked above); a
+  # plain IAM user's own MFA device is the only AWS-native way to get
+  # session credentials that carry it. Used only for that one emergency
+  # flow, never for regular access.
   name = "BreakGlassAdmin"
 
   tags = {
@@ -73,12 +88,25 @@ locals {
   )
 }
 
+# Holds the break-glass user (and, if this account ever needs a second
+# trusted admin with the same emergency access, any future one) — the
+# permissions below live on this group, not on either user directly.
+resource "aws_iam_group" "breakglass_admins" {
+  name = "BreakGlassAdmins"
+}
+
+resource "aws_iam_group_membership" "breakglass_admins" {
+  name  = "breakglass-admins-membership"
+  group = aws_iam_group.breakglass_admins.name
+  users = [aws_iam_user.breakglass.name]
+}
+
 # A plain identity policy, not a trust policy — jsonencode to match the
 # style used for other permission (non-trust) policies in this directory
 # (see terraform_plan_s3_role in terraform-plan-role.tf).
-resource "aws_iam_user_policy" "breakglass_assume_deploy_plan" {
-  name = "AssumeTerraformDeployAndPlanWithMFA"
-  user = aws_iam_user.breakglass.name
+resource "aws_iam_group_policy" "breakglass_assume_deploy_plan" {
+  name  = "AssumeTerraformDeployAndPlanWithMFA"
+  group = aws_iam_group.breakglass_admins.name
 
   policy = jsonencode({
     Version = "2012-10-17"
