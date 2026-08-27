@@ -3,24 +3,14 @@
 # top of its normal permissions.
 #
 # TerraformDeploy already only has the specific permissions it needs
-# (terraform-deploy-role.tf). This file
+# (terraform-deploy-role.tf). This file (terraform-deploy-boundary.tf)
 # adds a backup limit on top of that: AWS only allows an action if BOTH a
 # role's normal permissions AND its boundary agree to it. So even if
 # something in the future accidentally gave this role extra permissions (a
 # new resource added here, someone attaching a policy by hand in the AWS
 # console), this boundary would still block anything outside the fixed
 # list below.
-#
-# Why this exists: it was originally added to fix a real problem — this
-# role used to get its permissions from a module shared across several AWS
-# accounts, and that module allowed creating or modifying almost any IAM
-# role (a classic way to accidentally grant yourself admin access). That
-# shared module isn't used anymore (this role's permissions are now
-# defined directly in this repo, already narrow), so the original problem
-# can't happen anymore either — this file is kept anyway as extra
-# insurance, following AWS's own advice:
-#   - AWS Well-Architected (SEC03-BP05) calls out granting your management
-#     account permissions it doesn't need as a common mistake to avoid.
+
 #   - AWS's IAM documentation recommends permissions boundaries
 #     specifically as a way to cap what one identity can do, independent
 #     of whatever its normal permissions say.
