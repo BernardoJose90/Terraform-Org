@@ -221,8 +221,15 @@ jobs:
     # job's Terraform Plan step genuinely requires it for organization/
     # (terraform plan, unlike validate, fails without a value for a
     # required variable).
+    #
+    # TF_VAR_alert_email is the platform/ equivalent: security-alerts.tf's
+    # alert_email variable has no default, on purpose, so this job's
+    # platform/ leg needs a real value to plan. terraform-apply (below)
+    # doesn't need it — it applies the plan FILE this job produces rather
+    # than re-planning, so the value is already baked in by then.
     env:
       TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
     strategy:
       fail-fast: false
       matrix:
