@@ -1,0 +1,34 @@
+# Every GitHub Action in this repo is pinned to a commit SHA, not a
+# floating tag, which is safer but means something has to keep those pins
+# up to date. That's what this file does: it bumps the SHA and the
+# trailing "# vX.Y.Z" comment, and opens a normal PR that goes through the
+# usual required checks like anything else.
+#
+# Mirrors Terraform-platform's .github/dependabot.yml — this repo was
+# missing it (SHA-pinned actions but nothing to keep the pins current).
+#
+# Everything is grouped into one PR a week, on purpose, instead of a
+# separate PR per action. Nine small update PRs a week is how people start
+# rubber-stamping them without really looking.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/London
+    commit-message:
+      prefix: ci
+    labels:
+      - dependencies
+      - github-actions
+    # Keeps this small on purpose — once there are more than a couple of
+    # these PRs open at once, nobody's really reading them anymore.
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns:
+          - "*"
