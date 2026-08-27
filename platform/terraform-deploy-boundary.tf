@@ -24,6 +24,9 @@
 ###############################################################################
 
 data "aws_iam_policy_document" "terraform_deploy_boundary" {
+  #checkov:skip=CKV_AWS_111:Only the ManageSecurityAlertsKmsKey statement uses Resource "*" — kms:CreateKey/ListAliases can't be scoped to a key ARN at all (confirmed against AWS's IAM Service Authorization Reference). Every other statement in this document is scoped to specific, named resource ARNs.
+  #checkov:skip=CKV_AWS_356:Same — see ManageSecurityAlertsKmsKey's own comment further down for the full reasoning.
+  #checkov:skip=CKV_AWS_109:Same. This mirrors terraform-deploy-role.tf's terraform_deploy_kms_access policy exactly, as it must — anything granted there does nothing unless this file allows it too.
   # Lets TerraformDeploy read (but not change) this boundary policy itself,
   # so `terraform plan`/`apply` can check it's still correct on every run —
   # see the file header for why it can't write to it. The ARN is spelled

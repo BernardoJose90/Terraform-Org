@@ -287,6 +287,9 @@ resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
 # terraform-deploy-boundary.tf, which needs the identical statement added
 # by hand — this grant alone does nothing until that happens too.
 resource "aws_iam_role_policy" "terraform_deploy_kms_access" {
+  #checkov:skip=CKV_AWS_289:CreateKey/ListAliases can't be scoped to a key ARN at all (AWS docs confirm no resource-level permission support) — Resource "*" is unavoidable, not unconstrained.
+  #checkov:skip=CKV_AWS_290:Same — everything else in this statement is bundled with the two wildcard-forced actions rather than split into a second, narrower statement, matching modules/github-oidc-roles' FlowLogKmsKey precedent.
+  #checkov:skip=CKV_AWS_355:Same reasoning as the other two — see the comment above this resource.
   name = "SecurityAlertsKmsAccess"
   role = aws_iam_role.terraform_deploy.name
 
