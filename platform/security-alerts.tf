@@ -134,9 +134,55 @@ resource "aws_cloudwatch_event_rule" "unexpected_deploy_assume" {
   })
 }
 
+# Without an input_transformer, EventBridge hands SNS the raw CloudTrail
+# record as-is — a wall of nested JSON with the actually-useful fields
+# buried several levels deep, which is what the email used to look like
+# before this. This reshapes it into a few labeled lines instead.
+#
+# Every field below is guaranteed present on any event this rule can ever
+# match: requestParameters.roleArn exists because the rule's own event
+# pattern already requires it to match a specific suffix, and the rest
+# (time/eventName/userIdentity.*/sourceIPAddress) are on every CloudTrail
+# record, full stop. Deliberately not reaching for anything less certain
+# than that — EventBridge silently drops the whole notification if any one
+# input_paths entry doesn't resolve on a given event, so an alert firing at
+# all matters more here than including one more field.
 resource "aws_cloudwatch_event_target" "unexpected_deploy_assume" {
   rule = aws_cloudwatch_event_rule.unexpected_deploy_assume.name
   arn  = aws_sns_topic.security_alerts.arn
+
+  input_transformer {
+    input_paths = {
+      time      = "$.time"
+      eventName = "$.detail.eventName"
+      idType    = "$.detail.userIdentity.type"
+      principal = "$.detail.userIdentity.arn"
+      sourceIp  = "$.detail.sourceIPAddress"
+      roleArn   = "$.detail.requestParameters.roleArn"
+    }
+    # jsonencode(), not a hand-escaped string: input_template's value has to
+    # survive two layers of parsing — Terraform's own HCL string escaping,
+    # then EventBridge parsing the result as JSON — and hand-writing both
+    # layers of escapes is exactly the kind of thing that's easy to get
+    # subtly wrong (an earlier version of this line did: a single-escaped
+    # \n survives HCL fine but leaves a literal newline character sitting
+    # inside what EventBridge needs to be valid JSON, which fails). Building
+    # the text as a list and letting jsonencode() handle both the newlines
+    # and the placeholder tokens' surrounding quotes sidesteps that
+    # entirely — Terraform verified this parses as a real JSON document,
+    # not something typed by hand and hoped to be correct.
+    input_template = jsonencode(join("\n", [
+      "⚠️ TerraformDeploy assumed outside GitHub Actions OIDC",
+      "",
+      "When:       <time>",
+      "Event:      <eventName>",
+      "Role:       <roleArn>",
+      "Assumed by: <principal> (<idType>)",
+      "Source IP:  <sourceIp>",
+      "",
+      "This should only ever happen via the documented BreakGlass path (management-account root + MFA). If this wasn't you, investigate immediately.",
+    ]))
+  }
 }
 
 # Fires on ANY use of the BreakGlassAdmin IAM user's access key. This
@@ -165,7 +211,35 @@ resource "aws_cloudwatch_event_rule" "breakglass_admin_used" {
   })
 }
 
+# Same reasoning as unexpected_deploy_assume's target above. This rule
+# matches two different CloudTrail record shapes (API call vs. console
+# sign-in), but both share the same base envelope — time/eventName/
+# eventSource/awsRegion/sourceIPAddress/userIdentity.arn are present on
+# every CloudTrail record regardless of shape, so these are safe to rely
+# on for either event type this rule can match.
 resource "aws_cloudwatch_event_target" "breakglass_admin_used" {
   rule = aws_cloudwatch_event_rule.breakglass_admin_used.name
   arn  = aws_sns_topic.security_alerts.arn
+
+  input_transformer {
+    input_paths = {
+      time        = "$.time"
+      eventName   = "$.detail.eventName"
+      eventSource = "$.detail.eventSource"
+      region      = "$.detail.awsRegion"
+      principal   = "$.detail.userIdentity.arn"
+      sourceIp    = "$.detail.sourceIPAddress"
+    }
+    input_template = jsonencode(join("\n", [
+      "🚨 BreakGlassAdmin was used",
+      "",
+      "When:      <time>",
+      "Action:    <eventName> (<eventSource>)",
+      "Region:    <region>",
+      "Used by:   <principal>",
+      "Source IP: <sourceIp>",
+      "",
+      "BreakGlassAdmin is meant for rare, out-of-band emergency use only. If this wasn't you, investigate immediately.",
+    ]))
+  }
 }
