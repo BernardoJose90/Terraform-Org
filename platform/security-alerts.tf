@@ -1,30 +1,39 @@
 ###############################################################################
-# Security alerts — management account
+# Security alerts
 #
 # Added 2026-08-26 to close the "how would you know if TerraformDeploy or
 # BreakGlassAdmin were used unexpectedly" gap. Before this, the only
 # notification mechanism anywhere in the estate was GitHub's built-in email
 # on a failed scheduled workflow — nothing watched AWS itself.
 #
-# These rules depend on the organization trail in
-# organization/cloudtrail.tf: current AWS docs say `AWS API Call via
-# CloudTrail` events reach EventBridge only when a trail with logging is
-# enabled — the free 90-day event history alone is not a supported source.
+# Two layers, both feeding the one security-alerts SNS topic:
 #
-# AssumeRole / AssumeRoleWithWebIdentity are *read-only* management events,
-# which a plain state = ENABLED rule drops. The assume rule below must set
-# state = ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS or it silently
-# matches nothing. (The BreakGlassAdmin rule also matches Console Sign In
-# and mutating calls, so it is less affected — but the opt-in is harmless
-# there and keeps both rules consistent.)
+#  1. EventBridge rules (this account only). Real-time, but the default
+#     event bus only sees THIS account's events. Kept for the management
+#     account because BreakGlassAdmin only exists here and these fire
+#     fastest. AssumeRole is a read-only management event, so the rules
+#     need state = ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS or they
+#     silently match nothing.
 #
-# Scope: this file only covers the management account, since that's the
-# only account this root module manages, and it's the only account
-# BreakGlassAdmin exists in. Terraform-platform's member accounts each
-# have their own copy of this same pattern — see
-# modules/deploy-role-alerts in that repo, wired into each
-# member-accounts/*/main.tf.
+#  2. CloudWatch Logs metric filters + alarms on the org trail's log group
+#     (organization/cloudtrail.tf). The org trail aggregates EVERY account's
+#     CloudTrail — member accounts included, and global (IAM/STS) events —
+#     into that one log group, so these filters cover the whole estate from
+#     one place. This is the CIS 4.4 / AWS SRA shape, and it replaces the
+#     per-account modules/deploy-role-alerts that used to live in each
+#     Terraform-platform member stack (removed 2026-08: pushing an
+#     EventBridge rule + encrypted SNS topic + CMK into six tightly
+#     permissions-boundaried accounts wasn't worth it).
+#
+# Ordering: the metric filters reference the org trail's log group by name,
+# so organization/ must be applied before platform/ (it already is — the
+# org has to exist first regardless).
 ###############################################################################
+
+locals {
+  # organization/cloudtrail.tf :: aws_cloudwatch_log_group.cloudtrail.name
+  org_trail_log_group = "/aws/cloudtrail/org-trail"
+}
 
 variable "alert_email" {
   description = "Email address to notify on unexpected TerraformDeploy or BreakGlassAdmin use. Required — supply via a gitignored *.auto.tfvars file locally, or TF_VAR_alert_email / a repo secret in CI. No default on purpose: this alarm is silent and useless without a real destination, and a placeholder default is the kind of thing that quietly never gets fixed."
@@ -34,10 +43,10 @@ variable "alert_email" {
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 
-# SNS SSE needs a customer-managed key, not alias/aws/sns: EventBridge can
-# only publish to an encrypted topic if the key policy grants
-# events.amazonaws.com kms:Decrypt + kms:GenerateDataKey*, and the
-# AWS-managed key's policy can't be edited.
+# SNS SSE needs a customer-managed key, not alias/aws/sns: a publisher can
+# only reach an encrypted topic if the key policy grants it kms:Decrypt +
+# kms:GenerateDataKey*, and the AWS-managed key's policy can't be edited.
+# Both publishers here — EventBridge rules and CloudWatch alarms — need it.
 data "aws_iam_policy_document" "security_alerts_kms" {
   #checkov:skip=CKV_AWS_111:KMS key policy — "*" means "this key"; grants are constrained by principal + conditions.
   #checkov:skip=CKV_AWS_356:Same — a key policy's resource is always "*" meaning the key it is attached to.
@@ -54,13 +63,13 @@ data "aws_iam_policy_document" "security_alerts_kms" {
   }
 
   statement {
-    sid       = "AllowEventBridgePublishToEncryptedTopic"
+    sid       = "AllowPublishersToEncryptedTopic"
     effect    = "Allow"
     actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
     resources = ["*"]
     principals {
       type        = "Service"
-      identifiers = ["events.amazonaws.com"]
+      identifiers = ["events.amazonaws.com", "cloudwatch.amazonaws.com"]
     }
   }
 }
@@ -90,12 +99,12 @@ resource "aws_sns_topic_subscription" "security_alerts_email" {
 
 data "aws_iam_policy_document" "security_alerts_topic_policy" {
   statement {
-    sid     = "AllowEventBridgePublish"
+    sid     = "AllowPublish"
     effect  = "Allow"
     actions = ["sns:Publish"]
     principals {
       type        = "Service"
-      identifiers = ["events.amazonaws.com"]
+      identifiers = ["events.amazonaws.com", "cloudwatch.amazonaws.com"]
     }
     resources = [aws_sns_topic.security_alerts.arn]
   }
@@ -168,4 +177,82 @@ resource "aws_cloudwatch_event_rule" "breakglass_admin_used" {
 resource "aws_cloudwatch_event_target" "breakglass_admin_used" {
   rule = aws_cloudwatch_event_rule.breakglass_admin_used.name
   arn  = aws_sns_topic.security_alerts.arn
+}
+
+###############################################################################
+# Layer 2 — estate-wide metric filters on the org trail's CloudWatch Logs
+# group. These see every account (member accounts + this one) and global
+# IAM/STS events, which a per-account EventBridge rule cannot. CIS 4.4 shape:
+# metric filter -> metric -> alarm (threshold 1, Sum, 300s, >=), alarm ->
+# the same security-alerts SNS topic.
+#
+# For the management account these overlap the EventBridge rules above (two
+# emails on a real event) — deliberate: a rare, sensitive event should be
+# over-noticed, not de-duplicated.
+###############################################################################
+
+# Plain AssumeRole (not AssumeRoleWithWebIdentity) on any *:role/TerraformDeploy,
+# in any account. Per each role's trust policy the only principal that can do
+# this is the management account root with MFA — i.e. BreakGlass.
+resource "aws_cloudwatch_log_metric_filter" "unexpected_deploy_assume" {
+  name           = "unexpected-terraform-deploy-assume"
+  log_group_name = local.org_trail_log_group
+
+  pattern = "{ ($.eventSource = \"sts.amazonaws.com\") && ($.eventName = \"AssumeRole\") && ($.requestParameters.roleArn = \"*:role/TerraformDeploy\") }"
+
+  metric_transformation {
+    name          = "UnexpectedTerraformDeployAssume"
+    namespace     = "Security/CloudTrail"
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "unexpected_deploy_assume" {
+  alarm_name          = "unexpected-terraform-deploy-assume"
+  alarm_description   = "A TerraformDeploy role was assumed via plain AssumeRole (BreakGlass, not GitHub OIDC) somewhere in the org."
+  namespace           = "Security/CloudTrail"
+  metric_name         = "UnexpectedTerraformDeployAssume"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.security_alerts.arn]
+}
+
+# Out-of-band changes to the TerraformDeploy / TerraformPlan roles — trust
+# policy, inline/attached policy, permissions boundary, or the role itself.
+# The last clause drops changes the pipeline makes to its own roles (routine);
+# a change made after a BreakGlass assume is excluded here too, but that path
+# already trips the alarm above. IAM is global — only the org trail (multi-
+# region + global service events) surfaces these; a regional EventBridge rule
+# would not.
+resource "aws_cloudwatch_log_metric_filter" "deploy_role_tampering" {
+  name           = "terraform-deploy-role-tampering"
+  log_group_name = local.org_trail_log_group
+
+  pattern = "{ ($.eventSource = \"iam.amazonaws.com\") && ($.eventName = \"UpdateAssumeRolePolicy\" || $.eventName = \"PutRolePolicy\" || $.eventName = \"DeleteRolePolicy\" || $.eventName = \"AttachRolePolicy\" || $.eventName = \"DetachRolePolicy\" || $.eventName = \"PutRolePermissionsBoundary\" || $.eventName = \"DeleteRolePermissionsBoundary\" || $.eventName = \"UpdateRole\" || $.eventName = \"DeleteRole\") && ($.requestParameters.roleName = \"TerraformDeploy\" || $.requestParameters.roleName = \"TerraformPlan\") && ($.userIdentity.sessionContext.sessionIssuer.userName != \"TerraformDeploy\") }"
+
+  metric_transformation {
+    name          = "TerraformDeployRoleTampering"
+    namespace     = "Security/CloudTrail"
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "deploy_role_tampering" {
+  alarm_name          = "terraform-deploy-role-tampering"
+  alarm_description   = "An out-of-band IAM change touched a TerraformDeploy/TerraformPlan role (trust policy, attached policy, or permissions boundary) somewhere in the org."
+  namespace           = "Security/CloudTrail"
+  metric_name         = "TerraformDeployRoleTampering"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.security_alerts.arn]
 }
