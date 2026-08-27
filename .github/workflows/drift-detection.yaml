@@ -36,6 +36,9 @@ env:
   # needs it too, same as terraform.yaml's validate/plan jobs, even though
   # this is read-only and never touches the value's actual contents.
   TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
+  # platform/security-alerts.tf's alert_email has no default either — same
+  # reasoning, needed for platform/'s refresh-only plan to run at all.
+  TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
 
 jobs:
   drift-check:

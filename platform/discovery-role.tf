@@ -30,7 +30,21 @@ data "aws_iam_policy_document" "github_discovery_trust" {
       # role is assumed by Terraform-Platform's CI (account discovery), a
       # different repo than the one this Terraform config itself runs in.
       # See variables.tf for why these are two separate variables.
-      values = ["repo:${var.github_org}/${var.discovery_github_repo}:*"]
+      #
+      # Scoped the same way TerraformPlan is (terraform-plan-role.tf),
+      # rather than ":*" — this role is only ever assumed from the
+      # discover-accounts job in Terraform-platform's terraform-plan.yaml,
+      # terraform-apply.yaml, drift-detection.yaml and terraform-teardown.yaml,
+      # none of which set a job-level `environment:`. That job only ever
+      # runs from a pull_request event or from main (push, schedule, or a
+      # workflow_dispatch dispatched against main) — so those are the only
+      # two claim shapes that should ever be allowed to assume it. A
+      # wildcard here would let a workflow run on any branch or fork read
+      # the entire account manifest; audited 2026-08-26.
+      values = [
+        "repo:${var.github_org}/${var.discovery_github_repo}:pull_request",
+        "repo:${var.github_org}/${var.discovery_github_repo}:ref:refs/heads/main",
+      ]
     }
   }
 }

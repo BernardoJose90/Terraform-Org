@@ -167,7 +167,12 @@ jobs:
       - name: Checkov Security Scan
         id: checkov
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
-        uses: bridgecrewio/checkov-action@358405ddafaa109ad35d3d607bbc7cf933c742d9
+        # Pinned to the commit that bumps the container to checkov 3.3.11 —
+        # kept in sync with Terraform-platform's two other checkov pins
+        # (terraform-plan.yaml's checkov-action step and its plan.json
+        # pip install), which had drifted to 3.3.13/3.3.11 respectively.
+        # Bump this comment's version number in all three places at once.
+        uses: bridgecrewio/checkov-action@1246d92f57abae29d5db5f9aeeed2a9813e52d7d # checkov 3.3.11
         with:
           directory: ${{ matrix.dir }}
           output_format: cli,sarif
@@ -216,8 +221,15 @@ jobs:
     # job's Terraform Plan step genuinely requires it for organization/
     # (terraform plan, unlike validate, fails without a value for a
     # required variable).
+    #
+    # TF_VAR_alert_email is the platform/ equivalent: security-alerts.tf's
+    # alert_email variable has no default, on purpose, so this job's
+    # platform/ leg needs a real value to plan. terraform-apply (below)
+    # doesn't need it — it applies the plan FILE this job produces rather
+    # than re-planning, so the value is already baked in by then.
     env:
       TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
     strategy:
       fail-fast: false
       matrix:
