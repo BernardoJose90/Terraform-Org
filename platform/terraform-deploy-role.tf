@@ -134,9 +134,7 @@ resource "aws_iam_role_policy" "terraform_deploy_state_access" {
   })
 }
 
-# Everything else this role needs: managing the 5 known roles, the 3 known
-# customer-managed policies, /organizations/* SSM parameters, and reading
-# its own boundary. See the file header for the full explanation.
+# this is a permission policie attached to the terraform_deploy role
 resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
   name = "IAMManagementAccess"
   role = aws_iam_role.terraform_deploy.name
@@ -176,6 +174,27 @@ resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
           "iam:DeleteRolePolicy"
         ]
         Resource = [
+          "arn:aws:iam::145678291484:role/GitHubActionsAccountDiscovery",
+          "arn:aws:iam::145678291484:role/TerraformDeploy",
+          "arn:aws:iam::145678291484:role/TerraformPlan"
+        ]
+      },
+      {
+        # Added 2026-08-27: Terraform reads a role's current state (a plain
+        # GetRole) before deciding whether to update it — every one of the
+        # 5 roles this account manages needs this, not just whichever one
+        # happens to be changing on a given apply, since Terraform refreshes
+        # all of them on every run. Missing this is exactly what broke the
+        # discovery-role.tf trust-policy fix: the boundary already allowed
+        # iam:GetRole (see terraform-deploy-boundary.tf's ManageKnownRoles),
+        # but the role's own policy never did — AWS denies unless both
+        # agree, so it failed despite the boundary being fine with it.
+        Sid    = "ReadKnownRoles"
+        Effect = "Allow"
+        Action = ["iam:GetRole"]
+        Resource = [
+          "arn:aws:iam::145678291484:role/TerraformOrgRole",
+          "arn:aws:iam::145678291484:role/SSMReadOnly",
           "arn:aws:iam::145678291484:role/GitHubActionsAccountDiscovery",
           "arn:aws:iam::145678291484:role/TerraformDeploy",
           "arn:aws:iam::145678291484:role/TerraformPlan"
@@ -241,6 +260,144 @@ resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
           "iam:ListPolicyVersions"
         ]
         Resource = "arn:aws:iam::145678291484:policy/TerraformDeployPermissionsBoundary"
+      }
+    ]
+  })
+}
+
+# Added 2026-08-27 for security-alerts.tf's KMS key (SNS needs a
+# customer-managed key, not the AWS-managed alias/aws/sns, so EventBridge
+# can be granted decrypt/generate-data-key on it — see that file).
+#
+# CreateKey and ListAliases can't be scoped to a specific key ARN at all —
+# confirmed against AWS's own IAM Service Authorization Reference, not
+# assumed: that column is empty for both actions, meaning Resource must be
+# "*". A brand-new key also has no ARN yet at the moment this permission is
+# checked, so there's nothing to scope it to regardless. Everything else in
+# this list COULD technically be scoped to a specific key once it exists,
+# but is bundled into the same wildcard statement anyway, matching the
+# precedent modules/github-oidc-roles' FlowLogKmsKey statement already set
+# for the identical problem (a from-scratch KMS key with no fixed ID) —
+# splitting one wildcard-forced action from several scopable ones across
+# two statements for one small key isn't worth the inconsistency.
+#
+# This is the one real exception to this file's own "never Resource = *"
+# rule (see file header) — forced by the KMS API itself, not a shortcut.
+# TerraformDeploy's blast radius here is still capped independently by
+# terraform-deploy-boundary.tf, which needs the identical statement added
+# by hand — this grant alone does nothing until that happens too.
+resource "aws_iam_role_policy" "terraform_deploy_kms_access" {
+  name = "SecurityAlertsKmsAccess"
+  role = aws_iam_role.terraform_deploy.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ManageSecurityAlertsKmsKey"
+        Effect = "Allow"
+        Action = [
+          "kms:CreateKey",
+          "kms:ListAliases",
+          "kms:DescribeKey",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:GetKeyRotationStatus",
+          "kms:EnableKeyRotation",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags",
+          "kms:CreateAlias",
+          "kms:DeleteAlias",
+          "kms:UpdateAlias",
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# Added 2026-08-27 for security-alerts.tf's two EventBridge rules
+# (unexpected_deploy_assume, breakglass_admin_used). Both rules go on the
+# account's default event bus, so the ARN format is
+# arn:aws:events:region:account:rule/RuleName — confirmed against AWS's IAM
+# Service Authorization Reference. Unlike KMS, EventBridge fully supports
+# scoping every one of these actions to a specific, known rule name, so
+# this stays inside the file's "never Resource = *" rule with no exception
+# needed. Needs the identical statement in terraform-deploy-boundary.tf too.
+resource "aws_iam_role_policy" "terraform_deploy_eventbridge_access" {
+  name = "SecurityAlertsEventBridgeAccess"
+  role = aws_iam_role.terraform_deploy.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ManageSecurityAlertsEventRules"
+        Effect = "Allow"
+        Action = [
+          "events:PutRule",
+          "events:DescribeRule",
+          "events:DeleteRule",
+          "events:PutTargets",
+          "events:RemoveTargets",
+          "events:ListTargetsByRule",
+          "events:TagResource",
+          "events:UntagResource",
+          "events:ListTagsForResource"
+        ]
+        Resource = [
+          "arn:aws:events:eu-west-2:145678291484:rule/unexpected-terraform-deploy-assume",
+          "arn:aws:events:eu-west-2:145678291484:rule/breakglass-admin-used"
+        ]
+      }
+    ]
+  })
+}
+
+# Added 2026-08-27 for security-alerts.tf's SNS topic. Topic-level actions
+# (CreateTopic, Subscribe, etc.) scope to the topic ARN, which is
+# predictable ahead of time since the topic name is fixed
+# ("security-alerts") — confirmed against AWS's IAM Service Authorization
+# Reference. Subscription-level actions (Unsubscribe,
+# {Get,Set}SubscriptionAttributes) need a subscription ARN instead, which
+# has a generated ID with no fixed value to write in advance — the
+# ":*" suffix scopes that to "any subscription on this specific topic
+# only", not to every topic in the account, so this still isn't a bare
+# wildcard the way the KMS statement above genuinely has to be.
+resource "aws_iam_role_policy" "terraform_deploy_sns_access" {
+  name = "SecurityAlertsSnsAccess"
+  role = aws_iam_role.terraform_deploy.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ManageSecurityAlertsTopic"
+        Effect = "Allow"
+        Action = [
+          "sns:CreateTopic",
+          "sns:DeleteTopic",
+          "sns:GetTopicAttributes",
+          "sns:SetTopicAttributes",
+          "sns:Subscribe",
+          "sns:TagResource",
+          "sns:UntagResource",
+          "sns:ListTagsForResource"
+        ]
+        Resource = "arn:aws:sns:eu-west-2:145678291484:security-alerts"
+      },
+      {
+        Sid    = "ManageSecurityAlertsSubscriptions"
+        Effect = "Allow"
+        Action = [
+          "sns:Unsubscribe",
+          "sns:GetSubscriptionAttributes",
+          "sns:SetSubscriptionAttributes"
+        ]
+        Resource = "arn:aws:sns:eu-west-2:145678291484:security-alerts:*"
       }
     ]
   })
