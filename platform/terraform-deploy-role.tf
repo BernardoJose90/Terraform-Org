@@ -329,7 +329,7 @@ resource "aws_iam_role_policy" "terraform_deploy_kms_access" {
 # Service Authorization Reference. Unlike KMS, EventBridge fully supports
 # scoping every one of these actions to a specific, known rule name, so
 # this stays inside the file's "never Resource = *" rule with no exception
-# needed. Needs the identical statement in terraform-deploy-boundary.tf too.
+# needed. Needs the identical statement in terraform-deploy-boundary.tf too
 resource "aws_iam_role_policy" "terraform_deploy_eventbridge_access" {
   name = "SecurityAlertsEventBridgeAccess"
   role = aws_iam_role.terraform_deploy.name
