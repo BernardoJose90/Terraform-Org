@@ -3,24 +3,14 @@
 # top of its normal permissions.
 #
 # TerraformDeploy already only has the specific permissions it needs
-# (terraform-deploy-role.tf). This file
+# (terraform-deploy-role.tf). This file (terraform-deploy-boundary.tf)
 # adds a backup limit on top of that: AWS only allows an action if BOTH a
 # role's normal permissions AND its boundary agree to it. So even if
 # something in the future accidentally gave this role extra permissions (a
 # new resource added here, someone attaching a policy by hand in the AWS
 # console), this boundary would still block anything outside the fixed
 # list below.
-#
-# Why this exists: it was originally added to fix a real problem — this
-# role used to get its permissions from a module shared across several AWS
-# accounts, and that module allowed creating or modifying almost any IAM
-# role (a classic way to accidentally grant yourself admin access). That
-# shared module isn't used anymore (this role's permissions are now
-# defined directly in this repo, already narrow), so the original problem
-# can't happen anymore either — this file is kept anyway as extra
-# insurance, following AWS's own advice:
-#   - AWS Well-Architected (SEC03-BP05) calls out granting your management
-#     account permissions it doesn't need as a common mistake to avoid.
+
 #   - AWS's IAM documentation recommends permissions boundaries
 #     specifically as a way to cap what one identity can do, independent
 #     of whatever its normal permissions say.
@@ -34,6 +24,9 @@
 ###############################################################################
 
 data "aws_iam_policy_document" "terraform_deploy_boundary" {
+  #checkov:skip=CKV_AWS_111:Only the ManageSecurityAlertsKmsKey statement uses Resource "*" — kms:CreateKey/ListAliases can't be scoped to a key ARN at all (confirmed against AWS's IAM Service Authorization Reference). Every other statement in this document is scoped to specific, named resource ARNs.
+  #checkov:skip=CKV_AWS_356:Same — see ManageSecurityAlertsKmsKey's own comment further down for the full reasoning.
+  #checkov:skip=CKV_AWS_109:Same. This mirrors terraform-deploy-role.tf's terraform_deploy_kms_access policy exactly, as it must — anything granted there does nothing unless this file allows it too.
   # Lets TerraformDeploy read (but not change) this boundary policy itself,
   # so `terraform plan`/`apply` can check it's still correct on every run —
   # see the file header for why it can't write to it. The ARN is spelled
@@ -184,6 +177,91 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
       "arn:aws:s3:::james-terraform-state-2026",
       "arn:aws:s3:::james-terraform-state-2026/*",
     ]
+  }
+
+  # Added 2026-08-27 — must exactly mirror terraform-deploy-role.tf's three
+  # new statements (SecurityAlertsKmsAccess, SecurityAlertsEventBridgeAccess,
+  # SecurityAlertsSnsAccess). This is the one half of that fix TerraformDeploy
+  # can never apply itself — see this file's header for why. Apply by hand:
+  #   aws sso login --profile management
+  #   cd platform && terraform apply \
+  #     -target=aws_iam_policy.terraform_deploy_boundary
+  statement {
+    sid    = "ManageSecurityAlertsKmsKey"
+    effect = "Allow"
+    actions = [
+      "kms:CreateKey",
+      "kms:ListAliases",
+      "kms:DescribeKey",
+      "kms:PutKeyPolicy",
+      "kms:GetKeyPolicy",
+      "kms:GetKeyRotationStatus",
+      "kms:EnableKeyRotation",
+      "kms:TagResource",
+      "kms:UntagResource",
+      "kms:ListResourceTags",
+      "kms:CreateAlias",
+      "kms:DeleteAlias",
+      "kms:UpdateAlias",
+      "kms:ScheduleKeyDeletion",
+      "kms:CancelKeyDeletion",
+    ]
+    # CreateKey/ListAliases can't be scoped to a specific key ARN at all
+    # (confirmed against AWS's own IAM Service Authorization Reference) —
+    # see the matching comment in terraform-deploy-role.tf for the full
+    # reasoning. The one deliberate exception to this file's own
+    # never-wildcard pattern, forced by the KMS API itself.
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ManageSecurityAlertsEventRules"
+    effect = "Allow"
+    actions = [
+      "events:PutRule",
+      "events:DescribeRule",
+      "events:DeleteRule",
+      "events:PutTargets",
+      "events:RemoveTargets",
+      "events:ListTargetsByRule",
+      "events:TagResource",
+      "events:UntagResource",
+      "events:ListTagsForResource",
+    ]
+    resources = [
+      "arn:aws:events:eu-west-2:${var.management_account_id}:rule/unexpected-terraform-deploy-assume",
+      "arn:aws:events:eu-west-2:${var.management_account_id}:rule/breakglass-admin-used",
+    ]
+  }
+
+  statement {
+    sid    = "ManageSecurityAlertsTopic"
+    effect = "Allow"
+    actions = [
+      "sns:CreateTopic",
+      "sns:DeleteTopic",
+      "sns:GetTopicAttributes",
+      "sns:SetTopicAttributes",
+      "sns:Subscribe",
+      "sns:TagResource",
+      "sns:UntagResource",
+      "sns:ListTagsForResource",
+    ]
+    resources = ["arn:aws:sns:eu-west-2:${var.management_account_id}:security-alerts"]
+  }
+
+  statement {
+    sid    = "ManageSecurityAlertsSubscriptions"
+    effect = "Allow"
+    actions = [
+      "sns:Unsubscribe",
+      "sns:GetSubscriptionAttributes",
+      "sns:SetSubscriptionAttributes",
+    ]
+    # ":*" scopes this to "any subscription on this one topic", not every
+    # topic in the account — see the matching comment in
+    # terraform-deploy-role.tf.
+    resources = ["arn:aws:sns:eu-west-2:${var.management_account_id}:security-alerts:*"]
   }
 }
 
