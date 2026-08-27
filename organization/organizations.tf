@@ -177,7 +177,7 @@ resource "aws_organizations_delegated_administrator" "access_analyzer" {
   service_principal = "access-analyzer.amazonaws.com"
 }
 
-# Hands IAM Identity Center (SSO) administration off to the `security`
+# Hands IAM Identity Center (SSO) administration off to the `security`.
 # account instead of the management account — AWS recommends this to keep
 # the management account's own access as minimal as possible, for any
 # service that supports delegating it. SSO is actually set up and managed
