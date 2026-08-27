@@ -29,6 +29,7 @@
 variable "alert_email" {
   description = "Email address to notify on unexpected TerraformDeploy or BreakGlassAdmin use. Required — supply via a gitignored *.auto.tfvars file locally, or TF_VAR_alert_email / a repo secret in CI. No default on purpose: this alarm is silent and useless without a real destination, and a placeholder default is the kind of thing that quietly never gets fixed."
   type        = string
+  default = "bernardo.jose@websummit.com"
 }
 
 data "aws_caller_identity" "current" {}
