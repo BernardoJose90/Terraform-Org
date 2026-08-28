@@ -33,7 +33,7 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
   # out directly instead of referencing the policy resource below, because
   # referencing itself from inside its own policy would create a circular
   # dependency; a policy's ARN is always predictable from the account ID
-  # and name, so writing it out directly here is safe.
+  # and name, so writing it out directly here is safe..
   statement {
     sid    = "ReadOwnBoundaryPolicy"
     effect = "Allow"
