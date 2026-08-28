@@ -405,3 +405,61 @@ resource "aws_iam_role_policy" "terraform_deploy_sns_access" {
     ]
   })
 }
+
+# Added 2026-08-28 for security-alerts.tf's two CloudWatch Logs metric
+# filters (unexpected_deploy_assume, deploy_role_tampering), both on the
+# org trail's log group. Both PutMetricFilter and its read/delete
+# counterparts fully support scoping to a specific log group ARN
+# (confirmed against AWS's IAM Service Authorization Reference) — no
+# wildcard exception needed here, unlike the KMS statement above. Needs
+# the identical statement in terraform-deploy-boundary.tf too.
+resource "aws_iam_role_policy" "terraform_deploy_logs_access" {
+  name = "SecurityAlertsLogsAccess"
+  role = aws_iam_role.terraform_deploy.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ManageSecurityAlertsMetricFilters"
+        Effect = "Allow"
+        Action = [
+          "logs:PutMetricFilter",
+          "logs:DeleteMetricFilter",
+          "logs:DescribeMetricFilters"
+        ]
+        Resource = "arn:aws:logs:eu-west-2:145678291484:log-group:/aws/cloudtrail/org-trail"
+      }
+    ]
+  })
+}
+
+# Added 2026-08-28 for the two CloudWatch alarms those metric filters feed
+# (same two names as the filters above). PutMetricAlarm/DescribeAlarms/
+# DeleteAlarms all fully support scoping to a specific alarm ARN
+# (confirmed against AWS's IAM Service Authorization Reference) — again no
+# wildcard needed. Needs the identical statement in
+# terraform-deploy-boundary.tf too.
+resource "aws_iam_role_policy" "terraform_deploy_cloudwatch_access" {
+  name = "SecurityAlertsCloudWatchAccess"
+  role = aws_iam_role.terraform_deploy.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ManageSecurityAlertsAlarms"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricAlarm",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:DeleteAlarms"
+        ]
+        Resource = [
+          "arn:aws:cloudwatch:eu-west-2:145678291484:alarm:unexpected-terraform-deploy-assume",
+          "arn:aws:cloudwatch:eu-west-2:145678291484:alarm:terraform-deploy-role-tampering"
+        ]
+      }
+    ]
+  })
+}
