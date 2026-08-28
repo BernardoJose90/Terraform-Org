@@ -160,28 +160,28 @@ resource "aws_cloudwatch_event_target" "unexpected_deploy_assume" {
       sourceIp  = "$.detail.sourceIPAddress"
       roleArn   = "$.detail.requestParameters.roleArn"
     }
-    # jsonencode(), not a hand-escaped string: input_template's value has to
-    # survive two layers of parsing — Terraform's own HCL string escaping,
-    # then EventBridge parsing the result as JSON — and hand-writing both
-    # layers of escapes is exactly the kind of thing that's easy to get
-    # subtly wrong (an earlier version of this line did: a single-escaped
-    # \n survives HCL fine but leaves a literal newline character sitting
-    # inside what EventBridge needs to be valid JSON, which fails). Building
-    # the text as a list and letting jsonencode() handle both the newlines
-    # and the placeholder tokens' surrounding quotes sidesteps that
-    # entirely — Terraform verified this parses as a real JSON document,
-    # not something typed by hand and hoped to be correct.
-    input_template = jsonencode(join("\n", [
-      "⚠️ TerraformDeploy assumed outside GitHub Actions OIDC",
-      "",
-      "When:       <time>",
-      "Event:      <eventName>",
-      "Role:       <roleArn>",
-      "Assumed by: <principal> (<idType>)",
-      "Source IP:  <sourceIp>",
-      "",
-      "This should only ever happen via the documented BreakGlass path (management-account root + MFA). If this wasn't you, investigate immediately.",
-    ]))
+    # This is AWS's own documented pattern for multi-line plain-text output
+    # (EventBridge docs, "Common Issues with transforming input" ->
+    # "For (non-JSON) text output as multi-line strings"), not something
+    # worked out by trial and error: one independently-quoted JSON string
+    # per line, stacked with real newlines between them in the heredoc.
+    # EventBridge decodes each line on its own and joins them with real
+    # line breaks. Different from a single JSON string with escaped
+    # newlines inside it, which is what two earlier, failed versions of
+    # this line tried instead — one didn't pass AWS's own validation at
+    # all, the other passed validation but delivered the escape sequences
+    # and quote marks literally in the email (confirmed by an actual test).
+    input_template = <<-EOT
+      "⚠️ TerraformDeploy assumed outside GitHub Actions OIDC"
+      ""
+      "When:       <time>"
+      "Event:      <eventName>"
+      "Role:       <roleArn>"
+      "Assumed by: <principal> (<idType>)"
+      "Source IP:  <sourceIp>"
+      ""
+      "This should only ever happen via the documented BreakGlass path (management-account root + MFA). If this wasn't you, investigate immediately."
+    EOT
   }
 }
 
@@ -230,16 +230,18 @@ resource "aws_cloudwatch_event_target" "breakglass_admin_used" {
       principal   = "$.detail.userIdentity.arn"
       sourceIp    = "$.detail.sourceIPAddress"
     }
-    input_template = jsonencode(join("\n", [
-      "🚨 BreakGlassAdmin was used",
-      "",
-      "When:      <time>",
-      "Action:    <eventName> (<eventSource>)",
-      "Region:    <region>",
-      "Used by:   <principal>",
-      "Source IP: <sourceIp>",
-      "",
-      "BreakGlassAdmin is meant for rare, out-of-band emergency use only. If this wasn't you, investigate immediately.",
-    ]))
+    # See unexpected_deploy_assume's target above for the full reasoning —
+    # same AWS-documented multi-line pattern here.
+    input_template = <<-EOT
+      "🚨 BreakGlassAdmin was used"
+      ""
+      "When:      <time>"
+      "Action:    <eventName> (<eventSource>)"
+      "Region:    <region>"
+      "Used by:   <principal>"
+      "Source IP: <sourceIp>"
+      ""
+      "BreakGlassAdmin is meant for rare, out-of-band emergency use only. If this wasn't you, investigate immediately."
+    EOT
   }
 }
