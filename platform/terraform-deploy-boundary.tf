@@ -263,6 +263,38 @@ data "aws_iam_policy_document" "terraform_deploy_boundary" {
     # terraform-deploy-role.tf.
     resources = ["arn:aws:sns:eu-west-2:${var.management_account_id}:security-alerts:*"]
   }
+
+  # Added 2026-08-28 — must exactly mirror terraform-deploy-role.tf's
+  # terraform_deploy_logs_access and terraform_deploy_cloudwatch_access
+  # policies. Apply by hand, same as the KMS/EventBridge/SNS statements
+  # above:
+  #   aws sso login --profile management
+  #   cd platform && terraform apply \
+  #     -target=aws_iam_policy.terraform_deploy_boundary
+  statement {
+    sid    = "ManageSecurityAlertsMetricFilters"
+    effect = "Allow"
+    actions = [
+      "logs:PutMetricFilter",
+      "logs:DeleteMetricFilter",
+      "logs:DescribeMetricFilters",
+    ]
+    resources = ["arn:aws:logs:eu-west-2:${var.management_account_id}:log-group:/aws/cloudtrail/org-trail"]
+  }
+
+  statement {
+    sid    = "ManageSecurityAlertsAlarms"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:PutMetricAlarm",
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:DeleteAlarms",
+    ]
+    resources = [
+      "arn:aws:cloudwatch:eu-west-2:${var.management_account_id}:alarm:unexpected-terraform-deploy-assume",
+      "arn:aws:cloudwatch:eu-west-2:${var.management_account_id}:alarm:terraform-deploy-role-tampering",
+    ]
+  }
 }
 
 resource "aws_iam_policy" "terraform_deploy_boundary" {
