@@ -46,8 +46,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      organization: ${{ steps.filter.outputs.organization || steps.dispatch-fallback.outputs.value }}
-      platform: ${{ steps.filter.outputs.platform || steps.dispatch-fallback.outputs.value }}
+      # Dependabot PRs (GitHub Actions SHA bumps — .github/workflows/** only,
+      # which the filter below maps to BOTH directories) run with neither
+      # repo secrets nor OIDC. So the terraform-validate / terraform-plan
+      # legs can't actually run: validate hard-fails on the empty
+      # ACCOUNT_EMAILS_JSON guard, and plan would fail the OIDC assume — and
+      # both are required status checks, so the PR gets blocked on a check
+      # it can never pass. Force both directories to "not changed" for
+      # dependabot[bot] so every downstream matrix step skips and its check
+      # reports success. A human editing this workflow still gets the full
+      # validate/plan run.
+      organization: ${{ github.actor != 'dependabot[bot]' && (steps.filter.outputs.organization || steps.dispatch-fallback.outputs.value) || 'false' }}
+      platform: ${{ github.actor != 'dependabot[bot]' && (steps.filter.outputs.platform || steps.dispatch-fallback.outputs.value) || 'false' }}
     steps:
       # Only needed for push events. dorny/paths-filter talks to the GitHub
       # REST API directly for pull_request (no checkout required), but a
