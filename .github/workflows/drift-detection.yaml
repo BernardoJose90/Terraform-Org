@@ -31,7 +31,9 @@ permissions:
   contents: read
 
 env:
-  TERRAFORM_VERSION: "1.11.4"
+  # Terraform CLI version: single source in .terraform-version at the repo
+  # root, read with `cat` in the step below — same as terraform.yaml and
+  # Terraform-platform.
   # organization/variables.tf requires this (no default) — refresh-only plan
   # needs it too, same as terraform.yaml's validate/plan jobs, even though
   # this is read-only and never touches the value's actual contents.
@@ -55,10 +57,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Resolve Terraform version
+        id: tfver
+        run: echo "version=$(cat "$GITHUB_WORKSPACE/.terraform-version")" >> "$GITHUB_OUTPUT"
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_version: ${{ steps.tfver.outputs.version }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3

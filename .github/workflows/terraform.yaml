@@ -17,8 +17,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  TERRAFORM_VERSION: "1.11.4"
+# The Terraform CLI version is the single source in .terraform-version at the
+# repo root — each job reads it with `cat` into a step output rather than
+# carrying the literal here. Kept in sync with Terraform-platform, which uses
+# the same file + pattern. Renovate does NOT bump this (it can't see it), so a
+# CLI upgrade is a deliberate edit to .terraform-version + every
+# required_version constraint together.
 
 permissions:
   id-token: write
@@ -138,11 +142,16 @@ jobs:
           fi
           echo "$TF_VAR_account_emails" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d)} keys: {sorted(d.keys())}')"
 
+      - name: Resolve Terraform version
+        id: tfver
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
+        run: echo "version=$(cat "$GITHUB_WORKSPACE/.terraform-version")" >> "$GITHUB_OUTPUT"
+
       - name: Setup Terraform
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_version: ${{ steps.tfver.outputs.version }}
 
       - name: Terraform Format Check
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
@@ -269,11 +278,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
 
+      - name: Resolve Terraform version
+        id: tfver
+        if: needs.detect-changes.outputs[matrix.dir] == 'true'
+        run: echo "version=$(cat "$GITHUB_WORKSPACE/.terraform-version")" >> "$GITHUB_OUTPUT"
+
       - name: Setup Terraform
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_version: ${{ steps.tfver.outputs.version }}
 
       - name: Configure AWS Credentials
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
@@ -477,10 +491,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Resolve Terraform version
+        id: tfver
+        run: echo "version=$(cat "$GITHUB_WORKSPACE/.terraform-version")" >> "$GITHUB_OUTPUT"
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_version: ${{ steps.tfver.outputs.version }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
