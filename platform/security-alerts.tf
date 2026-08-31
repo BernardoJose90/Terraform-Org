@@ -333,44 +333,19 @@ resource "aws_cloudwatch_metric_alarm" "deploy_role_tampering" {
   alarm_actions       = [aws_sns_topic.security_alerts.arn]
 }
 
-# Any structural mutation of the AWS Organization — account lifecycle, OU
-# tree, SCP/policy changes, delegated-admin or trusted-service-access
-# changes. organization/ is applied by a human following organization/RUNBOOK.md
-# and is NEVER applied by CI (TerraformDeploy has no organizations:* — see
-# that runbook and README "Security Notes"), so nothing else in the estate
-# observes whether it changed. Expect one alarm per legitimate RUNBOOK apply:
-# those are rare enough that an email each time is the point, not noise.
-#
-# Metric filter, not an EventBridge rule: AWS Organizations is a global
-# service and only emits its CloudTrail events in us-east-1, whereas this
-# stack's provider is var.home_region. The org trail is is_multi_region_trail
-# + include_global_service_events (organization/cloudtrail.tf), so its
-# CloudWatch Logs group is the one place these events actually land here —
-# same reason deploy_role_tampering above uses a metric filter for IAM.
-resource "aws_cloudwatch_log_metric_filter" "organizations_mutation" {
-  name           = "organizations-mutation"
-  log_group_name = local.org_trail_log_group
-
-  pattern = "{ ($.eventSource = \"organizations.amazonaws.com\") && ($.eventName = \"CreateAccount\" || $.eventName = \"CreateGovCloudAccount\" || $.eventName = \"CloseAccount\" || $.eventName = \"MoveAccount\" || $.eventName = \"RemoveAccountFromOrganization\" || $.eventName = \"InviteAccountToOrganization\" || $.eventName = \"CreateOrganizationalUnit\" || $.eventName = \"UpdateOrganizationalUnit\" || $.eventName = \"DeleteOrganizationalUnit\" || $.eventName = \"CreatePolicy\" || $.eventName = \"UpdatePolicy\" || $.eventName = \"DeletePolicy\" || $.eventName = \"AttachPolicy\" || $.eventName = \"DetachPolicy\" || $.eventName = \"EnablePolicyType\" || $.eventName = \"DisablePolicyType\" || $.eventName = \"RegisterDelegatedAdministrator\" || $.eventName = \"DeregisterDelegatedAdministrator\" || $.eventName = \"EnableAWSServiceAccess\" || $.eventName = \"DisableAWSServiceAccess\" || $.eventName = \"DeleteOrganization\" || $.eventName = \"LeaveOrganization\") }"
-
-  metric_transformation {
-    name          = "OrganizationsMutation"
-    namespace     = "Security/CloudTrail"
-    value         = "1"
-    default_value = "0"
-  }
-}
-
-resource "aws_cloudwatch_metric_alarm" "organizations_mutation" {
-  alarm_name          = "organizations-mutation"
-  alarm_description   = "An account, OU, SCP, or org-level setting was mutated in the AWS Organization. organization/ has no CI apply — this should only ever follow a human RUNBOOK apply. If it didn't, investigate."
-  namespace           = "Security/CloudTrail"
-  metric_name         = "OrganizationsMutation"
-  statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 1
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  treat_missing_data  = "notBreaching"
-  alarm_actions       = [aws_sns_topic.security_alerts.arn]
-}
+# NOTE (2026-08-31): an `organizations-mutation` metric filter + alarm was
+# added here in #70 and reverted in #71. The metric filter applied fine, but
+# `cloudwatch:PutMetricAlarm` for a new alarm name is denied by both
+# TerraformDeploy's inline policy (terraform-deploy-role.tf ::
+# ManageSecurityAlertsAlarms) and its permissions boundary
+# (terraform-deploy-boundary.tf), which whitelist alarm ARNs by name — and
+# CI cannot widen its own boundary. Adding org-layer alerting therefore needs
+# a human, out-of-band, from the management account:
+#   1. add the new alarm ARN to the ManageSecurityAlertsAlarms statement in
+#      BOTH terraform-deploy-role.tf and terraform-deploy-boundary.tf
+#   2. `terraform apply -target=aws_iam_policy.terraform_deploy_boundary \
+#        -target=aws_iam_role_policy.terraform_deploy_cloudwatch_access`
+#   3. then re-add the filter + alarm and let CI apply them
+# Deferred on purpose — organization/ already has plan-on-PR + nightly
+# refresh-only drift detection, and the reviewer's call was "stop adding
+# controls".
