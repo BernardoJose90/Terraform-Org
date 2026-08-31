@@ -70,14 +70,12 @@ signal, not a nuisance. Open a fresh PR so a new plan is produced.
 ```bash
 aws sso login   # management account, admin / break-glass identity
 
-terraform init -lockfile=readonly   # backend: s3://james-terraform-state-2026/org/terraform.tfstate
-terraform apply tfplan.binary       # the FILE — no bare `terraform apply`, no fresh plan
+terraform init            # backend: s3://james-terraform-state-2026/org/terraform.tfstate
+terraform apply tfplan.binary   # the FILE — no bare `terraform apply`, no fresh plan
 ```
 
-Use the Terraform CLI version pinned in `.terraform-version` at the repo root
-(same file CI reads); `-lockfile=readonly` makes `init` fail rather than silently
-resolve a different provider version than the one in `.terraform.lock.hcl`. AWS
-provider constraint is `~> 6.0`.
+Terraform 1.11.4 (matches `TERRAFORM_VERSION` in the workflow), AWS provider
+`~> 6.0` (lockfile pins 6.62.0).
 
 If Terraform rejects the saved plan (`Saved plan is stale` / `Error: Saved plan is
 outdated`), state moved since CI planned it. **Stop.** Don't `-refresh` or re-plan
@@ -111,7 +109,7 @@ with the same JSON as the `ACCOUNT_EMAILS_JSON` secret.
 ```bash
 cd organization
 aws sso login
-terraform init -lockfile=readonly
+terraform init
 
 # First-time only: import the pre-existing Organization (see README).
 # terraform import aws_organizations_organization.aws_Org <root-id>
