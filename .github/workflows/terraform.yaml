@@ -23,6 +23,13 @@ on:
 # the same file + pattern. Renovate does NOT bump this (it can't see it), so a
 # CLI upgrade is a deliberate edit to .terraform-version + every
 # required_version constraint together.
+#
+# .terraform-version is in BOTH legs of the detect-changes filter below, so a
+# PR that only bumps it still runs Validate/Checkov/Plan for both directories
+# rather than being treated as a docs-only change and merging with nothing
+# planned. `terraform validate` there enforces each directory's
+# required_version against the new CLI, so an out-of-range bump fails its own
+# PR instead of landing silently.
 
 permissions:
   id-token: write
@@ -92,9 +99,11 @@ jobs:
             organization:
               - 'organization/**'
               - '.github/workflows/terraform.yaml'
+              - '.terraform-version'
             platform:
               - 'platform/**'
               - '.github/workflows/terraform.yaml'
+              - '.terraform-version'
 
       - name: workflow_dispatch runs everything, unfiltered
         id: dispatch-fallback
