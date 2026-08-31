@@ -136,7 +136,7 @@ jobs:
 
       - name: Terraform Init
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
-        run: terraform init -backend=false
+        run: terraform init -backend=false -lockfile=readonly
 
       - name: Terraform Validate
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
@@ -258,7 +258,7 @@ jobs:
 
       - name: Terraform Init
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
-        run: terraform init
+        run: terraform init -lockfile=readonly
 
       # -out saves the exact plan to a file. terraform-apply downloads this
       # same file and applies it directly instead of re-planning at merge
@@ -478,7 +478,7 @@ jobs:
           fi
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -lockfile=readonly
 
       # A push to main must never silently fall back to computing and
       # applying an unreviewed plan against the management account — that

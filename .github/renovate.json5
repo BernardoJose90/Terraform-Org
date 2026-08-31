@@ -1,0 +1,76 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  // ---------------------------------------------------------------------------
+  // Division of labour with Dependabot
+  //
+  // Dependabot (.github/dependabot.yml) still owns the GitHub Actions SHA
+  // pins — it does that job well. Renovate here is scoped to Terraform ONLY,
+  // because Dependabot's Terraform support does not reliably write the
+  // per-platform `h1:` checksums into .terraform.lock.hcl, and CI runs
+  // `terraform init -lockfile=readonly` which fails without the linux_amd64
+  // checksum. Renovate regenerates the lock files with the full platform set.
+  // ---------------------------------------------------------------------------
+  enabledManagers: ['terraform'],
+
+  extends: [
+    'config:recommended',
+    ':dependencyDashboard',
+  ],
+
+  timezone: 'Europe/London',
+
+  // Never auto-merge an infrastructure dependency. Every provider bump goes
+  // through the same PR review + plan-on-PR as any other change, and the
+  // management account keeps its approval gate.
+  automerge: false,
+
+  // Ignore a release for its first 7 days. Long enough for an obviously
+  // broken provider release to be yanked or superseded before it is ever
+  // proposed here.
+  minimumReleaseAge: '7 days',
+
+  // Leave the `~> 6.0` constraint in each providers.tf alone — only move the
+  // lock file forward to the newest version already inside that range. The
+  // constraint changes only if an update falls outside it (e.g. a new major
+  // version), which then requires a deliberate human edit.
+  rangeStrategy: 'update-lockfile',
+
+  // Refresh both .terraform.lock.hcl files on a schedule even when no
+  // version changed — picks up re-published checksums and keeps
+  // organization/ and platform/ converged on the same provider build.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ['before 6am on monday'],
+  },
+
+  packageRules: [
+    {
+      // One grouped PR per week for all Terraform provider updates across
+      // organization/ and platform/ — not one PR per directory.
+      matchManagers: ['terraform'],
+      groupName: 'terraform providers',
+      schedule: ['before 6am on monday'],
+      labels: ['dependencies', 'terraform'],
+    },
+    {
+      // NEVER bump the Terraform CLI itself. CI's Terraform version comes
+      // from `TERRAFORM_VERSION` hard-coded in the workflow YAML, which
+      // Renovate can't see — so a core bump gives a PR where the
+      // required_version constraints say one version and CI still runs
+      // another, and CI fails on its own PR with "Unsupported Terraform
+      // Core version" (this is what happened to Terraform-platform's
+      // "Update dependency hashicorp/terraform to v1.16.0" PR).
+      //
+      // A Terraform CLI upgrade stays a deliberate manual change: bump
+      // TERRAFORM_VERSION in every workflow file and every required_version
+      // constraint together, then test.
+      matchDepNames: ['terraform', 'hashicorp/terraform'],
+      enabled: false,
+    },
+  ],
+
+  // Keep the number of open update PRs low so they actually get read.
+  prConcurrentLimit: 3,
+  prHourlyLimit: 2,
+}
