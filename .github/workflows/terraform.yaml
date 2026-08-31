@@ -31,6 +31,10 @@ permissions:
   # security-events:write lets the Checkov job publish results to the repo's
   # Security tab (Code scanning alerts) instead of only living in job logs.
   security-events: write
+  # attestations:read lets terraform-apply's "Verify reviewed plan" step run
+  # `gh attestation verify` against the provenance attestation that
+  # terraform-plan's "Attest plan provenance" step produced.
+  attestations: read
 
 jobs:
   # Cheap, no matrix — computes per-directory relevance once so the matrix
@@ -237,6 +241,19 @@ jobs:
     # platform/ leg needs a real value to plan. terraform-apply (below)
     # doesn't need it — it applies the plan FILE this job produces rather
     # than re-planning, so the value is already baked in by then.
+    #
+    # Job-level permissions fully REPLACE the workflow-level block for this
+    # job, so everything this job uses has to be re-listed here alongside
+    # the one addition: attestations: write, needed by
+    # actions/attest-build-provenance in "Attest plan provenance" below.
+    #   id-token: write       — OIDC assume for the plan role
+    #   contents: read        — checkout
+    #   pull-requests: write  — the "Update PR Comment" step
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      attestations: write
     env:
       TF_VAR_account_emails: ${{ secrets.ACCOUNT_EMAILS_JSON }}
       TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
@@ -262,7 +279,7 @@ jobs:
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
-          role-to-assume: arn:aws:iam::145678291484:role/TerraformPlan
+          role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/TerraformPlan
           aws-region: eu-west-2
           role-session-name: gha-plan-${{ matrix.dir }}
 
@@ -386,16 +403,42 @@ jobs:
         if: steps.plan.outcome == 'failure'
         run: exit 1
 
+      # Plan integrity chain — ported from Terraform-platform's
+      # terraform-plan.yaml. Stamp the plan with the exact commit it was
+      # computed from and hash both files together; terraform-apply (and the
+      # organization/ RUNBOOK) verify this before applying, so a plan
+      # reviewed at commit A can't be silently swapped for one built from a
+      # later commit B on the same PR, and a plan with no valid provenance
+      # attestation is refused. github.event.pull_request.head.sha is always
+      # set here — this job is pull_request-only.
+      - name: Stamp and hash plan
+        if: steps.plan.outcome == 'success'
+        working-directory: ${{ matrix.dir }}
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "$HEAD_SHA" > tfplan.sha
+          sha256sum tfplan.binary tfplan.sha > tfplan.sha256
+
+      - name: Attest plan provenance
+        if: steps.plan.outcome == 'success'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ matrix.dir }}/tfplan.binary
+
       # Uploaded even for organization/ (which never auto-applies) for
       # consistency and so a human has the exact reviewed plan file available
-      # if they ever want it for the manual `terraform apply` on that dir.
+      # for the manual `terraform apply` on that dir — see organization/RUNBOOK.md.
       # Only platform/'s copy is actually downloaded by terraform-apply below.
       - name: Upload plan file for apply reuse
         if: steps.plan.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tfplan-${{ matrix.dir }}
-          path: ${{ matrix.dir }}/tfplan.binary
+          path: |
+            ${{ matrix.dir }}/tfplan.binary
+            ${{ matrix.dir }}/tfplan.sha
+            ${{ matrix.dir }}/tfplan.sha256
           retention-days: 30
 
   terraform-apply:
@@ -412,7 +455,13 @@ jobs:
     # main that only touched organization/ or docs would still spend a
     # `management-approval` review request on an apply with nothing to do.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-changes.outputs.platform == 'true'
-    needs: [detect-changes, terraform-validate]
+    # security-scan is included so a Checkov failure on main blocks the
+    # management-account apply via the workflow's own dependency graph, not
+    # only via the PR branch ruleset. It runs on push and reports success
+    # when its steps skip (docs-only), so this only ever blocks a real
+    # finding. terraform-plan is deliberately NOT here — it's
+    # pull_request-only, so on push it's a skipped no-op.
+    needs: [detect-changes, terraform-validate, security-scan]
     # Gates this job behind the "management-approval" GitHub Environment —
     # configured with required reviewers in repo Settings → Environments, not
     # in this file. That's what actually makes a push to main pause for a
@@ -436,7 +485,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
-          role-to-assume: arn:aws:iam::145678291484:role/TerraformDeploy
+          role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/TerraformDeploy
           aws-region: eu-west-2
           role-session-name: gha-apply-platform
 
@@ -456,8 +505,13 @@ jobs:
             });
             const match = prs.find(p => p.merged_at) || prs[0];
             core.setOutput('pr_number', match ? String(match.number) : '');
+            // head_sha is the commit the PR's plan was computed against —
+            // "Verify reviewed plan" checks the downloaded plan's own
+            // tfplan.sha stamp against this, so a plan built from an
+            // earlier commit that shares the PR number is rejected.
+            core.setOutput('head_sha', match ? match.head.sha : '');
             core.info(match
-              ? `Commit ${context.sha} -> PR #${match.number}`
+              ? `Commit ${context.sha} -> PR #${match.number} (head ${match.head.sha})`
               : `Commit ${context.sha} has no associated PR (direct push or workflow_dispatch)`);
 
       - name: Download reviewed plan (platform)
@@ -476,15 +530,58 @@ jobs:
           path: platform
           if_no_artifact_found: warn
 
+      # Downloading tfplan-platform by name isn't the same as knowing it's
+      # the plan that was reviewed on the merged PR. This checks the hash,
+      # the commit stamp, and the provenance attestation (all produced by
+      # terraform-plan's "Stamp and hash plan" / "Attest plan provenance"
+      # steps) before anything applies it. Any failure DISCARDS the plan
+      # rather than failing the job — a discarded plan flows straight into
+      # the existing "Check reviewed plan actually downloaded" /
+      # "Refuse unreviewed apply" path, so there's no new failure mode.
+      - name: Verify reviewed plan integrity and provenance
+        if: steps.download-reviewed.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_SHA: ${{ steps.resolve-pr.outputs.head_sha }}
+        run: |
+          [ -f tfplan.binary ] || exit 0  # nothing downloaded — next step handles it
+
+          if [ ! -f tfplan.sha256 ] || [ ! -f tfplan.sha ]; then
+            echo "::error::reviewed plan has no hash/commit stamp (tfplan.sha / tfplan.sha256). Discarding rather than applying it unverified."
+            rm -f tfplan.binary tfplan.sha tfplan.sha256
+            exit 0
+          fi
+
+          if ! sha256sum -c tfplan.sha256; then
+            echo "::error::reviewed plan failed its own recorded checksum. Discarding — it may have been tampered with, corrupted, or substituted."
+            rm -f tfplan.binary tfplan.sha tfplan.sha256
+            exit 0
+          fi
+
+          PLAN_SHA="$(cat tfplan.sha)"
+          if [ -z "$EXPECTED_SHA" ] || [ "$PLAN_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::reviewed plan was computed at commit $PLAN_SHA, but the merged PR's head is ${EXPECTED_SHA:-unknown}. Discarding rather than applying a stale diff."
+            rm -f tfplan.binary tfplan.sha tfplan.sha256
+            exit 0
+          fi
+
+          if ! gh attestation verify tfplan.binary --repo "$GITHUB_REPOSITORY"; then
+            echo "::error::reviewed plan has no valid build provenance attestation. Discarding it."
+            rm -f tfplan.binary tfplan.sha tfplan.sha256
+            exit 0
+          fi
+
+          echo "✅ Plan hash, commit stamp, and provenance attestation all verified for platform (commit $PLAN_SHA)."
+
       - name: Check reviewed plan actually downloaded
         id: reviewed
         run: |
           if [ -f tfplan.binary ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "✅ Found reviewed plan for platform"
+            echo "✅ Found reviewed (and verified) plan for platform"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "ℹ️ No reviewed plan found for platform"
+            echo "ℹ️ No reviewed (and verified) plan found for platform"
           fi
 
       - name: Terraform Init

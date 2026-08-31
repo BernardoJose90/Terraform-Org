@@ -138,7 +138,9 @@ Only needs to be run once. After the import we issue `terraform plan` / `terrafo
 # Authenticate to the management account
 aws sso login   # or export static credentials for the management account
 
-# organization/ — applied manually, not by CI
+# organization/ — applied manually, not by CI.
+# Preferred flow: apply the reviewed+attested plan artifact from the merged
+# PR rather than re-planning locally — see organization/RUNBOOK.md.
 cd organization
 terraform init
 terraform plan
@@ -217,8 +219,8 @@ Both root modules share the same S3 backend bucket but use separate keys, so the
 
 - **Validate** — `terraform fmt -check`, `terraform init -backend=false`, `terraform validate`, on every PR and push touching `**.tf`/`**.tfvars`/lockfiles.
 - **Security Scan** — Checkov, blocking (`soft_fail: false`), with SARIF results uploaded to the repo's Security tab. No `skip_check`/`skip_path` config — neither directory sources anything external.
-- **Plan** — on pull requests, assumes `TerraformPlan`, plans both directories, and posts/updates a PR comment per directory with the plan output (flagging destructive changes with a `destructive-change` label).
-- **Apply** — **`platform/` only**, on push to `main`, gated behind the `management-approval` GitHub Environment (a human must approve). It downloads and applies the *exact* plan artifact reviewed on the merged PR rather than re-planning at merge time; a `workflow_dispatch` run falls back to a fresh plan+apply if no reviewed artifact is found. `organization/` has no apply job at all — see [Security Notes](#security-notes) for why.
+- **Plan** — on pull requests, assumes `TerraformPlan`, plans both directories, and posts/updates a PR comment per directory with the plan output (flagging destructive changes with a `destructive-change` label). Each successful plan is stamped with its PR head commit, checksummed, and given a build-provenance attestation, then uploaded as the `tfplan-<dir>` artifact (30 days).
+- **Apply** — **`platform/` only**, on push to `main`, gated behind the `management-approval` GitHub Environment (a human must approve). It downloads the *exact* plan artifact reviewed on the merged PR, **verifies its checksum, commit stamp, and provenance attestation** (discarding it into the "refuse unreviewed apply" path on any mismatch), and applies that file rather than re-planning at merge time; a `workflow_dispatch` run falls back to a fresh plan+apply if no reviewed artifact is found. `organization/` has no apply job at all — its reviewed plan is applied by a human following [`organization/RUNBOOK.md`](organization/RUNBOOK.md). See [Security Notes](#security-notes) for why.
 
 `.github/workflows/drift-detection.yaml` runs nightly (and on demand) against both directories as a refresh-only plan, so unmanaged drift (a console edit, a manual apply) doesn't go unnoticed — this matters most for `organization/`, which never auto-applies.
 
