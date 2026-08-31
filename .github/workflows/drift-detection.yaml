@@ -63,7 +63,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
-          role-to-assume: arn:aws:iam::145678291484:role/TerraformPlan
+          role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/TerraformPlan
           aws-region: eu-west-2
           role-session-name: gha-drift-${{ matrix.dir }}
 

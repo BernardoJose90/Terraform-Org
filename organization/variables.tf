@@ -9,6 +9,12 @@ variable "home_region" {
 
 variable "account_emails" {
   description = "Unique root email address for each member account."
+  # These are AWS root-account emails — the primary recovery vector for
+  # every member account. Marked sensitive so `terraform plan` renders them
+  # as (sensitive value) in stdout and the PR comment; the repo is public
+  # and the plan output is posted there. Sourced from the ACCOUNT_EMAILS_JSON
+  # secret via TF_VAR_account_emails in terraform.yaml.
+  sensitive = true
   type = object({
     security           = string
     security_analytics = string
