@@ -68,7 +68,7 @@ jobs:
           role-session-name: gha-drift-${{ matrix.dir }}
 
       - name: Terraform Init
-        run: terraform init -input=false
+        run: terraform init -input=false -lockfile=readonly
 
       # -refresh-only isolates "has AWS diverged from what Terraform's state
       # thinks is true" from "there's a pending code change not yet
