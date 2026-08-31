@@ -172,7 +172,7 @@ jobs:
         # (terraform-plan.yaml's checkov-action step and its plan.json
         # pip install), which had drifted to 3.3.13/3.3.11 respectively.
         # Bump this comment's version number in all three places at once.
-        uses: bridgecrewio/checkov-action@1246d92f57abae29d5db5f9aeeed2a9813e52d7d # checkov 3.3.11
+        uses: bridgecrewio/checkov-action@5659ddea96102e16d8f221b3d8402453c0b1c150 # checkov 3.3.11
         with:
           directory: ${{ matrix.dir }}
           output_format: cli,sarif
@@ -199,7 +199,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always() && needs.detect-changes.outputs[matrix.dir] == 'true'
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: results.sarif
           category: checkov-${{ matrix.dir }}
@@ -453,7 +453,7 @@ jobs:
       - name: Download reviewed plan (platform)
         id: download-reviewed
         continue-on-error: true
-        uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # v21
+        uses: dawidd6/action-download-artifact@d63b86af1b34672e53c440b1b83979861906bad7 # v24
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           workflow: terraform.yaml
