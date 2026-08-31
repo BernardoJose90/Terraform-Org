@@ -54,17 +54,20 @@
       labels: ['dependencies', 'terraform'],
     },
     {
-      // NEVER bump the Terraform CLI itself. CI's Terraform version comes
-      // from `TERRAFORM_VERSION` hard-coded in the workflow YAML, which
-      // Renovate can't see — so a core bump gives a PR where the
-      // required_version constraints say one version and CI still runs
-      // another, and CI fails on its own PR with "Unsupported Terraform
-      // Core version" (this is what happened to Terraform-platform's
-      // "Update dependency hashicorp/terraform to v1.16.0" PR).
+      // NEVER bump the Terraform CLI itself. `enabledManagers: ['terraform']`
+      // above already excludes Renovate's separate `terraform-version`
+      // manager, so the .terraform-version file (the single source CI reads
+      // with `cat`) is left alone — this rule is belt-and-suspenders in case
+      // the CLI version is ever pinned somewhere the `terraform` manager
+      // does see. A core bump that slipped through would give a PR where
+      // .terraform-version / required_version say one version and CI runs
+      // another, failing on its own PR (this is what happened to
+      // Terraform-platform's "Update dependency hashicorp/terraform to
+      // v1.16.0" PR).
       //
       // A Terraform CLI upgrade stays a deliberate manual change: bump
-      // TERRAFORM_VERSION in every workflow file and every required_version
-      // constraint together, then test.
+      // .terraform-version and every required_version constraint together,
+      // then test.
       matchDepNames: ['terraform', 'hashicorp/terraform'],
       enabled: false,
     },
