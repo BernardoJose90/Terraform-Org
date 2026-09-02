@@ -77,24 +77,66 @@ jobs:
         run: terraform init -input=false -lockfile=readonly
 
       # -refresh-only isolates "has AWS diverged from what Terraform's state
-      # thinks is true" from "there's a pending code change not yet
-      # applied" — an ordinary `terraform plan` conflates both, which would
-      # make this job cry wolf on every routine unmerged PR. -detailed-
-      # exitcode: 0 = no drift, 1 = a real error, 2 = drift found.
+      # thinks is true" from "there's a pending code change not yet applied"
+      # — an ordinary `terraform plan` conflates both, which would make this
+      # job cry wolf on every routine unmerged PR.
+      #
+      # Drift is decided from resource_drift[] in the plan's own JSON, NOT
+      # from -detailed-exitcode alone. That flag has a documented history of
+      # returning the wrong code with -refresh-only — 0 when there IS drift
+      # (hashicorp/terraform#35117) and 2 when there ISN'T (#36403). The exit
+      # code is still used to catch "terraform itself errored", and a
+      # ::warning:: fires if it disagrees with the JSON. Kept in sync with
+      # Terraform-platform's drift-detection.yaml, which does the same.
       - name: Terraform Plan (refresh-only drift check)
         id: drift
         run: |
           set +e
-          terraform plan -refresh-only -no-color -input=false -detailed-exitcode
+          terraform plan -refresh-only -no-color -input=false -detailed-exitcode -out=drift.tfplan
           exit_code=$?
           set -e
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
-          case "$exit_code" in
-            0) echo "✅ No drift detected in ${{ matrix.dir }}" ;;
-            2) echo "::warning::Drift detected in ${{ matrix.dir }} — AWS no longer matches Terraform's state. See the plan output above for exactly what changed." ;;
-            *) echo "::error::Drift check failed for ${{ matrix.dir }} — see the error above. This may not be drift, could be a real failure (auth, network, etc.)." ;;
-          esac
 
-      - name: Fail job if drift or error found
-        if: steps.drift.outputs.exit_code != '0'
+          if [ "$exit_code" -eq 1 ]; then
+            echo "::error::Drift check failed for ${{ matrix.dir }} — terraform plan itself errored (auth, network, etc.), not drift. See the error above."
+            exit 1
+          fi
+
+          terraform show -json drift.tfplan > drift.json
+          drift_count=$(jq '(.resource_drift // []) | length' drift.json)
+          echo "drift_count=$drift_count" >> "$GITHUB_OUTPUT"
+
+          if [ "$exit_code" -eq 2 ] && [ "$drift_count" -eq 0 ]; then
+            echo "::warning::${{ matrix.dir }}: -detailed-exitcode returned 2 but resource_drift is empty (known flaky flag — hashicorp/terraform#36403). Treating as NO drift."
+          fi
+          if [ "$exit_code" -eq 0 ] && [ "$drift_count" -gt 0 ]; then
+            echo "::warning::${{ matrix.dir }}: -detailed-exitcode returned 0 but resource_drift has $drift_count entr(y/ies) (known flaky flag — hashicorp/terraform#35117). Treating as DRIFT."
+          fi
+
+          if [ "$drift_count" -gt 0 ]; then
+            echo "::warning::Drift detected in ${{ matrix.dir }} ($drift_count resource(s)) — AWS no longer matches Terraform's state."
+            jq -r '(.resource_drift // [])[].address' drift.json | sed 's/^/  - /'
+            {
+              echo "### Drift: \`${{ matrix.dir }}\` ($drift_count resource(s))"
+              echo '```'
+              jq -r '(.resource_drift // [])[].address' drift.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "has_drift=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ No drift detected in ${{ matrix.dir }}"
+            echo "has_drift=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload drift report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: drift-report-${{ matrix.dir }}
+          path: ${{ matrix.dir }}/drift.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Fail job on drift
+        if: steps.drift.outputs.has_drift == 'true'
         run: exit 1
