@@ -7,3 +7,9 @@
 *.auto.tfvars.json
 crash.log
 crash.*.log
+
+# Plan files — short-lived CI scratch, can carry real attribute values.
+# drift.json is drift-detection.yaml's refresh-only plan as JSON.
+*.tfplan
+tfplan.binary
+drift.json
