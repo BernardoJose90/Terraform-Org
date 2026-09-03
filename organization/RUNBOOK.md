@@ -123,6 +123,51 @@ note that this went through the fallback path and why.
 
 ---
 
+## Reconciling computed-attribute drift (state-only)
+
+`drift-detection.yaml` will go red with `Objects have changed outside of Terraform`
+in two situations that are **not** real drift and need no infrastructure change:
+
+- **Just after creating a resource stack that splits settings across sibling
+  resources** — e.g. `aws_s3_bucket` plus `aws_s3_bucket_versioning` /
+  `_server_side_encryption_configuration` / `_policy` / `_logging` /
+  `_lifecycle_configuration`, or `aws_iam_role` plus `aws_iam_role_policy`.
+  Terraform records the parent's state at creation, before the siblings apply,
+  and never re-reads it. The parent's now-read-only computed attributes
+  (`policy`, `versioning`, `inline_policy`, …) then show as "changed" on the
+  next refresh. Maintainers treat this as expected
+  (hashicorp/terraform-provider-aws#24254). The normal apply path here uses a
+  saved plan file, which never refreshes, so nothing closes this window on its
+  own.
+- **After an AWS provider major-version bump** — the first refresh surfaces
+  schema/representation changes (e.g. `+ tags = {}`). HashiCorp's v6 upgrade
+  guide explicitly says to run `terraform apply -refresh-only` afterwards.
+
+Fix, run once from the management account:
+
+```bash
+cd organization
+aws sso login
+terraform init -lockfile=readonly
+terraform apply -refresh-only
+```
+
+**Before typing `yes`, confirm the plan is state-only:** it must end with
+`Plan: 0 to add, 0 to change, 0 to destroy.` and show only a `Note: Objects have
+changed outside of Terraform` block — no `will be created` / `destroyed` /
+`updated in-place`. `terraform apply -refresh-only` cannot modify AWS; it only
+rewrites `s3://james-terraform-state-2026/org/terraform.tfstate` to match what is
+already there.
+
+If the plan shows any real create/update/destroy, **stop** — that is not this
+case; treat it as genuine drift and investigate.
+
+Record in the PR/issue that tracks the triggering change: what you ran, when, and
+the `0 added, 0 changed, 0 destroyed` result. Then re-run `drift-detection.yaml`
+(`gh workflow run drift-detection.yaml`) to confirm it is green.
+
+---
+
 ## SCP safety check
 
 Before applying anything that touches `scp.tf`:
