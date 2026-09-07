@@ -204,7 +204,7 @@ jobs:
         # (terraform-plan.yaml's checkov-action step and its plan.json
         # pip install), which had drifted to 3.3.13/3.3.11 respectively.
         # Bump this comment's version number in all three places at once.
-        uses: bridgecrewio/checkov-action@5659ddea96102e16d8f221b3d8402453c0b1c150 # checkov 3.3.11
+        uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # checkov 3.3.11
         with:
           directory: ${{ matrix.dir }}
           output_format: cli,sarif
@@ -300,7 +300,7 @@ jobs:
 
       - name: Configure AWS Credentials
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/TerraformPlan
           aws-region: eu-west-2
@@ -510,7 +510,7 @@ jobs:
           terraform_version: ${{ steps.tfver.outputs.version }}
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/TerraformDeploy
           aws-region: eu-west-2
