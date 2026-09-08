@@ -693,3 +693,29 @@ jobs:
           echo "   so a fresh plan is being computed and applied deliberately."
           terraform plan -no-color -input=false -out=tfplan.binary
           terraform apply -input=false -lock-timeout=120s tfplan.binary
+
+      # A failed apply to the management account (IAM, SCPs, CloudTrail) is
+      # the one event here that most needs a human fast — apply may have
+      # already changed some resources and stopped partway, and the only
+      # other signal is a line in a log nobody is watching plus GitHub's
+      # failed-run email. Post to Slack the same way drift-detection.yaml
+      # does. Skips cleanly when no webhook is configured.
+      - name: Apply Failure Notification
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "════════════════════════════════════════════════════════════"
+          echo "❌ FAILED: platform apply (management account)"
+          echo "════════════════════════════════════════════════════════════"
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "ℹ️ No SLACK_WEBHOOK_URL configured — skipping Slack notification."
+            exit 0
+          fi
+          # -f: fail this step loudly on a 4xx (e.g. a rotated webhook)
+          # rather than reporting success while nothing was sent.
+          curl -fsS -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg url "$RUN_URL" \
+              '{text: (":rotating_light: *Terraform apply FAILED* — `Terraform-Org` / `platform` (management account). A change may be half-applied — check the run.\n<" + $url + "|View run>")}')"
