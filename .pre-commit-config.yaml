@@ -1,0 +1,69 @@
+# Runs the same checks CI runs, locally on `git commit`, before a push — so
+# you find out in seconds instead of after a pipeline round-trip. Mirrors
+# Terraform-platform's .pre-commit-config.yaml.
+#
+# Install once, per clone:
+#   brew install pre-commit
+#   brew install terraform-linters/tap/tflint   # or download from GitHub releases
+#   pre-commit install
+#   tflint --init --config "$(git rev-parse --show-toplevel)/.tflint.hcl"
+#
+# Run against everything on demand:
+#   pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      # Every workflow in this repo gets hand-edited a lot — catch broken
+      # YAML before it costs a push and a failed run.
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      # Size check, not a content check — catches a big .tfstate, never a
+      # 40-char API key. That's what the gitleaks hook below is for.
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  # Scans staged changes for committed credentials. Mirrors the Secret Scan
+  # CI workflow. `language: golang`, so pre-commit builds the pinned gitleaks
+  # itself — no manual install.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.108.1
+    hooks:
+      # Same check as terraform.yaml's "Terraform Format Check".
+      - id: terraform_fmt
+
+      # Catches HCL that doesn't parse or references something missing,
+      # without real AWS credentials or a backend.
+      - id: terraform_validate
+        args:
+          - --init-args=-backend=false
+
+      # Same tflint policy the `lint` job runs, from the same .tflint.hcl.
+      # Needs `tflint --init` run once per clone (see the header).
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+        files: ^(organization|platform)/.*\.tf$
+
+  # Same Checkov the security-scan job runs. This repo has no .checkov.yaml —
+  # CI uses Checkov defaults plus inline `#checkov:skip` comments, and so
+  # does this hook, so a clean run here means a clean run in CI.
+  - repo: https://github.com/bridgecrewio/checkov.git
+    rev: '3.3.11'
+    hooks:
+      - id: checkov
+        args:
+          - --framework
+          - terraform
+          - --compact
+          - --quiet
+        files: ^(organization|platform)/.*\.tf$
