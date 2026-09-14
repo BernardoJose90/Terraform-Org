@@ -201,7 +201,7 @@ jobs:
 
       - name: Setup TFLint
         if: needs.detect-changes.outputs.organization == 'true' || needs.detect-changes.outputs.platform == 'true'
-        uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6.3.0
+        uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
         with:
           tflint_version: v0.64.0   # keep compatible with .tflint.hcl's aws ruleset version
 
@@ -246,7 +246,7 @@ jobs:
         # (terraform-plan.yaml's checkov-action step and its plan.json
         # pip install), which had drifted to 3.3.13/3.3.11 respectively.
         # Bump this comment's version number in all three places at once.
-        uses: bridgecrewio/checkov-action@5659ddea96102e16d8f221b3d8402453c0b1c150 # checkov 3.3.11
+        uses: bridgecrewio/checkov-action@a8664e3a0549367977f0cda990a34311835c87c0 # checkov 3.3.11
         with:
           directory: ${{ matrix.dir }}
           output_format: cli,sarif
@@ -273,7 +273,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always() && needs.detect-changes.outputs[matrix.dir] == 'true'
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: results.sarif
           category: checkov-${{ matrix.dir }}
@@ -342,7 +342,7 @@ jobs:
 
       - name: Configure AWS Credentials
         if: needs.detect-changes.outputs[matrix.dir] == 'true'
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/TerraformPlan
           aws-region: eu-west-2
@@ -552,7 +552,7 @@ jobs:
           terraform_version: ${{ steps.tfver.outputs.version }}
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           role-to-assume: arn:aws:iam::${{ vars.MANAGEMENT_ACCOUNT_ID }}:role/TerraformDeploy
           aws-region: eu-west-2
