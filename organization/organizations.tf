@@ -72,6 +72,7 @@ resource "aws_organizations_account" "security" {
     OU        = "Security"
     Purpose   = "Centralized security operations"
     ManagedBy = "Terraform"
+    Tier      = "production-approval"
   }
   lifecycle {
     prevent_destroy = true
@@ -88,6 +89,7 @@ resource "aws_organizations_account" "security_analytics" {
     OU        = "Security"
     Purpose   = "AI-generated security findings analysis"
     ManagedBy = "Terraform"
+    Tier      = "production-approval"
   }
   lifecycle {
     prevent_destroy = true
@@ -104,6 +106,7 @@ resource "aws_organizations_account" "network" {
     OU        = "Infrastructure"
     Purpose   = "Shared networking infrastructure"
     ManagedBy = "Terraform"
+    Tier      = "production-approval"
   }
   lifecycle {
     prevent_destroy = true
@@ -120,6 +123,7 @@ resource "aws_organizations_account" "monitoring" {
     OU        = "Infrastructure"
     Purpose   = "Centralized observability"
     ManagedBy = "Terraform"
+    Tier      = "automated"
   }
   lifecycle {
     prevent_destroy = true
@@ -137,6 +141,7 @@ resource "aws_organizations_account" "production" {
     Purpose     = "Live workload hosting"
     Environment = "production"
     ManagedBy   = "Terraform"
+    Tier        = "production-approval"
   }
   lifecycle {
     prevent_destroy = true
@@ -154,6 +159,7 @@ resource "aws_organizations_account" "development" {
     Purpose     = "Development and testing"
     Environment = "development"
     ManagedBy   = "Terraform"
+    Tier        = "automated"
   }
   lifecycle {
     prevent_destroy = true
