@@ -11,11 +11,11 @@ name: Drift Detection
 # to main that touches platform/ paths; a change made any other way would
 # otherwise sit unnoticed indefinitely.
 #
-# A red run here relies on GitHub's built-in "scheduled workflow failed"
-# email notification rather than custom alerting — same mechanism
-# Terraform-Platform's own drift-detection.yaml uses. workflow_dispatch is
-# there so a run can be triggered on demand instead of waiting for the
-# schedule.
+# On drift, this posts to Slack (if SLACK_WEBHOOK_URL is set) and then fails
+# the job — the red run also triggers GitHub's built-in "scheduled workflow
+# failed" email, which still works if Slack is down. Same layering as
+# Terraform-Platform's drift-detection.yaml. workflow_dispatch is there so a
+# run can be triggered on demand instead of waiting for the schedule.
 
 on:
   schedule:
@@ -136,6 +136,31 @@ jobs:
           path: ${{ matrix.dir }}/drift.json
           retention-days: 30
           if-no-files-found: warn
+
+      # Posts to Slack before failing the job, so the alert goes out even if
+      # the job-failure email is missed. Skips cleanly when no webhook is
+      # configured. Same curl shape as terraform.yaml's apply notification.
+      - name: Notify Slack (drift)
+        if: steps.drift.outputs.has_drift == 'true'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DIR: ${{ matrix.dir }}
+          DRIFT_COUNT: ${{ steps.drift.outputs.drift_count }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "ℹ️ No SLACK_WEBHOOK_URL configured — skipping Slack notification."
+            exit 0
+          fi
+          ADDRS="$(jq -r '(.resource_drift // [])[].address' drift.json)"
+          curl -fsS -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -n \
+              --arg dir "$DIR" \
+              --arg count "$DRIFT_COUNT" \
+              --arg url "$RUN_URL" \
+              --arg body "$ADDRS" \
+              '{text: ("*Drift detected* in Terraform-Org `" + $dir + "` (" + $count + " resource(s)) — AWS no longer matches Terraform state.\n<" + $url + "|View run>\n```\n" + $body + "\n```")}')"
 
       - name: Fail job on drift
         if: steps.drift.outputs.has_drift == 'true'
