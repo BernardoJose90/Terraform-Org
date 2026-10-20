@@ -52,15 +52,17 @@ resource "aws_ssm_parameter" "account_tier" {
   # checkov:skip=CKV_AWS_337:Same reasoning, KMS CMK variant of the same check.
   for_each = local.accounts
 
-  name  = "/organizations/tiers/${each.key}"
-  type  = "String"
-  value = each.value.tags["Tier"]
+  name      = "/organizations/tiers/${each.key}"
+  type      = "String"
+  value     = each.value.tags["Tier"]
+  overwrite = true
 }
 
 resource "aws_ssm_parameter" "management_tier" {
   # checkov:skip=CKV2_AWS_34:Same reasoning as account_tier above.
   # checkov:skip=CKV_AWS_337:Same reasoning as account_tier above.
-  name  = "/organizations/tiers/management"
-  type  = "String"
-  value = "management-approval"
+  name      = "/organizations/tiers/management"
+  type      = "String"
+  value     = "management-approval"
+  overwrite = true
 }
