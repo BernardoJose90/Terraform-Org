@@ -17,7 +17,7 @@
 locals {
   sso_account_names = [
     "security",
-    "security_analytics",
+    "infra_shared_services",
     "network",
     "monitoring",
     "production",

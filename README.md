@@ -46,7 +46,7 @@
 |---|---|---|
 | `aws_organizations_organization` | 1 | Feature set `ALL`, SCPs + Tag Policies enabled |
 | `aws_organizations_organizational_unit` | 5 | Security, Infrastructure, Workloads, Workloads/Prod, Workloads/Dev |
-| `aws_organizations_account` | 6 | security, security-analytics, network, monitoring, production, development |
+| `aws_organizations_account` | 6 | security, infra-shared-services, network, monitoring, production, development |
 | `aws_organizations_delegated_administrator` | 4 | Security account delegated for GuardDuty, Security Hub, Access Analyzer, and IAM Identity Center |
 | `aws_organizations_policy` | 1 | Region-restriction SCP — denies actions outside `var.allowed_regions` |
 | `aws_organizations_policy_attachment` | 1 | Attaches the region-restriction SCP — currently to the **Dev OU only**, see [Region Restriction SCP](#region-restriction-scp) |
@@ -78,7 +78,7 @@
 Root
 ├── Security
 │   ├── security              (GuardDuty / Security Hub / Access Analyzer delegated admin)
-│   └── security-analytics    (AI-generated security findings analysis)
+│   └── infra-shared-services (shared services; renamed from security-analytics)
 ├── Infrastructure
 │   ├── network                (shared networking)
 │   └── monitoring             (centralized observability)
@@ -163,7 +163,7 @@ Outputs (account IDs, role ARNs) are also written to SSM automatically — no ma
 | Name | Description | Type | Default |
 |---|---|---|---|
 | `home_region` | Primary AWS region | `string` | — (required; no default) |
-| `account_emails` | Unique root email per member account (`security`, `security_analytics`, `network`, `monitoring`, `production`, `development`) | `object` | — (required) |
+| `account_emails` | Unique root email per member account (`security`, `infra_shared_services`, `network`, `monitoring`, `production`, `development`) | `object` | — (required) |
 | `allowed_regions` | Regions permitted by the region-restriction SCP. Enforced via `aws_organizations_policy.region_restriction` — see [Region Restriction SCP](#region-restriction-scp) for current rollout scope | `list(string)` | `["eu-west-1", "eu-west-2"]` |
 
 ### `platform/`

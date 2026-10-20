@@ -24,11 +24,13 @@
 
 locals {
   # State-key prefixes that differ from the SSM parameter / account name.
-  # security_analytics is the only current case: its SSM parameter and SSO
-  # account name use an underscore, but its backend "s3" key uses a hyphen
-  # (member-accounts/security_analytics/main.tf: key = "security-analytics/terraform.tfstate").
+  # infra_shared_services is the only current case: it was renamed from
+  # security_analytics (SSM parameter / SSO account name both updated),
+  # but its backend "s3" key was deliberately left as the old
+  # "security-analytics" string to avoid a state migration — see
+  # member-accounts/infra_shared_services/main.tf: key = "security-analytics/terraform.tfstate".
   state_bucket_prefix_overrides = {
-    security_analytics = "security-analytics"
+    infra_shared_services = "security-analytics"
   }
 
   # prefix => account_id, one entry per member account.

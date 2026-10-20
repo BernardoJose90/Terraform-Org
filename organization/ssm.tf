@@ -12,12 +12,12 @@
 
 locals {
   accounts = {
-    security           = aws_organizations_account.security
-    security_analytics = aws_organizations_account.security_analytics
-    network            = aws_organizations_account.network
-    monitoring         = aws_organizations_account.monitoring
-    production         = aws_organizations_account.production
-    development        = aws_organizations_account.development
+    security              = aws_organizations_account.security
+    infra_shared_services = aws_organizations_account.infra_shared_services
+    network               = aws_organizations_account.network
+    monitoring            = aws_organizations_account.monitoring
+    production            = aws_organizations_account.production
+    development           = aws_organizations_account.development
   }
 }
 
@@ -52,15 +52,17 @@ resource "aws_ssm_parameter" "account_tier" {
   # checkov:skip=CKV_AWS_337:Same reasoning, KMS CMK variant of the same check.
   for_each = local.accounts
 
-  name  = "/organizations/tiers/${each.key}"
-  type  = "String"
-  value = each.value.tags["Tier"]
+  name      = "/organizations/tiers/${each.key}"
+  type      = "String"
+  value     = each.value.tags["Tier"]
+  overwrite = true
 }
 
 resource "aws_ssm_parameter" "management_tier" {
   # checkov:skip=CKV2_AWS_34:Same reasoning as account_tier above.
   # checkov:skip=CKV_AWS_337:Same reasoning as account_tier above.
-  name  = "/organizations/tiers/management"
-  type  = "String"
-  value = "management-approval"
+  name      = "/organizations/tiers/management"
+  type      = "String"
+  value     = "management-approval"
+  overwrite = true
 }
