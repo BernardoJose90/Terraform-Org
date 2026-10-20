@@ -12,12 +12,12 @@
 
 locals {
   accounts = {
-    security           = aws_organizations_account.security
-    security_analytics = aws_organizations_account.security_analytics
-    network            = aws_organizations_account.network
-    monitoring         = aws_organizations_account.monitoring
-    production         = aws_organizations_account.production
-    development        = aws_organizations_account.development
+    security              = aws_organizations_account.security
+    infra_shared_services = aws_organizations_account.infra_shared_services
+    network               = aws_organizations_account.network
+    monitoring            = aws_organizations_account.monitoring
+    production            = aws_organizations_account.production
+    development           = aws_organizations_account.development
   }
 }
 

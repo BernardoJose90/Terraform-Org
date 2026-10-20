@@ -16,12 +16,12 @@ variable "account_emails" {
   # secret via TF_VAR_account_emails in terraform.yaml.
   sensitive = true
   type = object({
-    security           = string
-    security_analytics = string
-    network            = string
-    monitoring         = string
-    production         = string
-    development        = string
+    security              = string
+    infra_shared_services = string
+    network               = string
+    monitoring            = string
+    production            = string
+    development           = string
   })
 }
 

@@ -80,14 +80,14 @@ resource "aws_organizations_account" "security" {
   }
 }
 
-resource "aws_organizations_account" "security_analytics" {
-  name      = "security-analytics"
-  email     = var.account_emails["security_analytics"]
+resource "aws_organizations_account" "infra_shared_services" {
+  name      = "infra-shared-services"
+  email     = var.account_emails["infra_shared_services"]
   parent_id = aws_organizations_organizational_unit.security.id
   role_name = "OrganizationAccountAccessRole"
   tags = {
     OU        = "Security"
-    Purpose   = "AI-generated security findings analysis"
+    Purpose   = "For shared services"
     ManagedBy = "Terraform"
     Tier      = "production-approval"
   }
@@ -95,6 +95,11 @@ resource "aws_organizations_account" "security_analytics" {
     prevent_destroy = true
     ignore_changes  = [role_name, email]
   }
+}
+
+moved {
+  from = aws_organizations_account.security_analytics
+  to   = aws_organizations_account.infra_shared_services
 }
 
 resource "aws_organizations_account" "network" {
