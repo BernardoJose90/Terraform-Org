@@ -189,9 +189,18 @@ resource "aws_iam_role_policy" "terraform_deploy_iam_management_access" {
         # iam:GetRole (see terraform-deploy-boundary.tf's ManageKnownRoles),
         # but the role's own policy never did — AWS denies unless both
         # agree, so it failed despite the boundary being fine with it.
+        #
+        # ListRolePolicies/ListAttachedRolePolicies added 2026-10-20: same
+        # failure, different actions. The aws_iam_role resource's Read always
+        # calls both — even when the role has no inline_policy block in
+        # config — to detect unmanaged policies. Hit this updating
+        # ssm_read_only's trust policy (SSMReadOnly) after an account rename
+        # changed local.account_ids_sso's for_each set; the boundary already
+        # allowed both (same ManageKnownRoles statement), the identity policy
+        # didn't.
         Sid    = "ReadKnownRoles"
         Effect = "Allow"
-        Action = ["iam:GetRole"]
+        Action = ["iam:GetRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies"]
         Resource = [
           "arn:aws:iam::145678291484:role/TerraformOrgRole",
           "arn:aws:iam::145678291484:role/SSMReadOnly",
